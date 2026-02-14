@@ -11,6 +11,7 @@ import {
   Activity,
   User,
   ArrowUp,
+  History,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -37,7 +38,11 @@ const navItems: NavItem[] = [
     path: '/dashboard/cases',
     icon: <FileText className="w-5 h-5" />,
   },
-
+  {
+    name: 'Audit Trail',
+    path: '/dashboard/audit',
+    icon: <History className="w-5 h-5" />,
+  },
 ]
 
 interface DashboardLayoutProps {
