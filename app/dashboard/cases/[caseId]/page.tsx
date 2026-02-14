@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { icdDiagnosisApi } from '@/lib/icd-diagnosis-api';
 import { STATUS_LABELS, STATUS_COLORS, type ICDDiagnosisDetail } from '@/types/icd-diagnosis';
+import ICD10Dropdown from '@/app/components/ICD10Dropdown';
 import {
   ArrowLeft,
   User,
@@ -293,12 +294,11 @@ export default function CaseDetailPage() {
                         Final Code (Editable)
                       </label>
                       <div className="flex gap-3">
-                        <input
-                          type="text"
+                        <ICD10Dropdown
                           value={displayCode}
-                          onChange={(e) => handleModifyCode(codeResult.id, e.target.value)}
-                          placeholder="Enter ICD-10 code..."
-                          className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onChange={(value) => handleModifyCode(codeResult.id, value)}
+                          placeholder="Search or type ICD-10 code..."
+                          className="flex-1"
                         />
                         <button
                           onClick={() => handleAcceptCode(codeResult.id)}
@@ -335,13 +335,11 @@ export default function CaseDetailPage() {
                 Add New Code
               </label>
               <div className="flex gap-3">
-                <input
-                  type="text"
+                <ICD10Dropdown
                   value={newCode}
-                  onChange={(e) => setNewCode(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addNewCode()}
-                  placeholder="Enter new ICD-10 code..."
-                  className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onChange={setNewCode}
+                  placeholder="Search or type ICD-10 code..."
+                  className="flex-1"
                 />
                 <button
                   onClick={addNewCode}
