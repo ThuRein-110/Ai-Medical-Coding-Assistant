@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
+import { processDiagnosisCoding } from '@/lib/diagnosis-coding'
 
 // Column mapping from Excel headers to database field names
 const COLUMN_MAPPING: Record<string, string> = {
@@ -70,6 +71,9 @@ function generateCaseId(): string {
   return `CASE-${year}-${random}`
 }
 
+export const runtime = "nodejs";
+export const maxDuration = 300; // allow up to 5 minutes for large multi-column batches
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
@@ -111,6 +115,10 @@ export async function POST(request: Request) {
     const insertedPatients: string[] = []
     let totalInserted = 0
     
+    // Collect records for diagnosis coding (only first 5 rows, matching patient insertion)
+    let recordsForCoding: Record<string, any>[] = []
+    let allHeaders: string[] = []
+    
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName]
       // Convert sheet to JSON with column-value pairs (first row as keys)
@@ -119,45 +127,60 @@ export async function POST(request: Request) {
         raw: false, // Convert all values to strings
       }) as Record<string, any>[]
       
+      // Store headers from first sheet
+      if (allHeaders.length === 0 && jsonData.length > 0) {
+        allHeaders = Object.keys(jsonData[0])
+      }
+      
+      // Only collect first 5 rows per sheet for diagnosis coding (matching patient insertion)
+      const slicedData = jsonData.slice(0, 5)
+      recordsForCoding = [...recordsForCoding, ...slicedData]
+      
       // Map each row to standardized field names (limit to first 5 rows)
-      const mappedData: MappedRow[] = jsonData.slice(0, 5).map(mapRowData)
+      const mappedData: MappedRow[] = slicedData.map(mapRowData)
       sheets[sheetName] = mappedData
 
       // Insert each row as a new patient/case in Supabase (max 5 rows)
-      for (const row of mappedData) {
-        // Skip rows with no admission number
-        if (!row.admission_number) {
-          console.warn('Skipping row without admission_number:', row)
-          continue
-        }
+      // for (const row of mappedData) {
+      //   // Skip rows with no admission number
+      //   if (!row.admission_number) {
+      //     console.warn('Skipping row without admission_number:', row)
+      //     continue
+      //   }
 
-        // Generate case ID
-        const caseId = generateCaseId()
-        const now = new Date().toISOString()
+      //   // Generate case ID
+      //   const caseId = generateCaseId()
+      //   const now = new Date().toISOString()
 
-        // Insert into patients table
-        const { error: insertError } = await supabase
-          .from('patients')
-          .insert({
-            admission_number: row.admission_number,
-            age: parseInt(row.age) || null,
-            sex: row.sex,
-            chief_complaint: row.chief_complaint,
-            patient_illness: row.patient_illness,
-            patient_examine: row.patient_examine,
-            pre_diagnosis: row.pre_diagnosis,
-            treatment_plan: row.treatment_plan,
-            created_at: now
-          })
+      //   // Insert into patients table
+      //   const { error: insertError } = await supabase
+      //     .from('patients')
+      //     .insert({
+      //       admission_number: row.admission_number,
+      //       age: parseInt(row.age) || null,
+      //       sex: row.sex,
+      //       chief_complaint: row.chief_complaint,
+      //       patient_illness: row.patient_illness,
+      //       patient_examine: row.patient_examine,
+      //       pre_diagnosis: row.pre_diagnosis,
+      //       treatment_plan: row.treatment_plan,
+      //       created_at: now
+      //     })
 
-        if (insertError) {
-          console.error('Error inserting patient:', insertError)
-          throw new Error(`Failed to insert patient: ${insertError.message}`)
-        }
+      //   if (insertError) {
+      //     console.error('Error inserting patient:', insertError)
+      //     throw new Error(`Failed to insert patient: ${insertError.message}`)
+      //   }
 
-        insertedPatients.push(caseId)
-        totalInserted++
-      }
+      //   insertedPatients.push(caseId)
+      //   totalInserted++
+      // }
+    }
+
+    // Process diagnosis coding AFTER saving patient data (only on the first 5 rows)
+    let diagnosisCodingResult = null
+    if (recordsForCoding.length > 0 && allHeaders.length > 0) {
+      diagnosisCodingResult = await processDiagnosisCoding(recordsForCoding, allHeaders)
     }
 
     // Get workbook metadata
@@ -170,12 +193,13 @@ export async function POST(request: Request) {
       totalInserted,
       insertedPatients,
     }
-
+    console.log(JSON.stringify(diagnosisCodingResult))
     return NextResponse.json(
       {
         success: true,
         data: sheets,
         metadata,
+        diagnosisCoding: diagnosisCodingResult,
       },
       { status: 200 }
     )
