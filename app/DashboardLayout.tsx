@@ -39,8 +39,7 @@ const navItems: NavItem[] = [
   {
     name: 'Audit Trail',
     path: '/dashboard/audit',
-    icon: <History className="w-5 h-5" />,
-    roles: ['admin', 'auditor'],
+    icon: <History className="w-5 h-5" />
   },
 ];
 
