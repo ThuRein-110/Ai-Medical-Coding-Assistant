@@ -6,12 +6,11 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/app/contexts/AuthContext'
 import {
   LayoutDashboard,
-  Upload,
   FileText,
-  History,
   LogOut,
   Activity,
   User,
+  ArrowUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -31,20 +30,14 @@ const navItems: NavItem[] = [
   {
     name: 'Upload Cases',
     path: '/dashboard/upload',
-    icon: <Upload className="w-5 h-5" />,
-    roles: ['admin', 'coder'],
+    icon: <ArrowUp className="w-5 h-5" />,
   },
   {
     name: 'Case List',
     path: '/dashboard/cases',
     icon: <FileText className="w-5 h-5" />,
   },
-  {
-    name: 'Audit Trail',
-    path: '/dashboard/audit',
-    icon: <History className="w-5 h-5" />,
-    roles: ['admin', 'auditor'],
-  },
+
 ]
 
 interface DashboardLayoutProps {

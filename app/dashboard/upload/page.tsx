@@ -14,10 +14,23 @@ interface PreviewRow {
   treatment: string;
 }
 
+interface ExcelExtractResponse {
+  success: boolean;
+  data: Record<string, any[]>;
+  metadata: {
+    fileName: string;
+    fileSize: number;
+    sheetNames: string[];
+    sheetCount: number;
+    uploadedAt: string;
+    totalInserted: number;
+    insertedCases: string[];
+  };
+}
+
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [previewData, setPreviewData] = useState<PreviewRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -35,7 +48,8 @@ export default function UploadPage() {
     
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && droppedFile.name.endsWith('.xlsx')) {
-      handleFileSelect(droppedFile);
+      setFile(droppedFile);
+      toast.success('File selected: ' + droppedFile.name);
     } else {
       toast.error('Please upload an Excel file (.xlsx)');
     }
@@ -44,51 +58,13 @@ export default function UploadPage() {
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      handleFileSelect(selectedFile);
+      setFile(selectedFile);
+      toast.success('File selected: ' + selectedFile.name);
     }
-  };
-
-  const handleFileSelect = (selectedFile: File) => {
-    setFile(selectedFile);
-    
-    // Mock preview data (in real app, parse Excel here)
-    const mockPreview: PreviewRow[] = [
-      {
-        age: '45',
-        sex: 'F',
-        cc: 'Chest pain radiating to left arm',
-        pi: 'Sudden onset chest pain for 2 hours',
-        exam: 'BP: 145/95, HR: 98',
-        preDx: 'Acute MI (rule out)',
-        treatment: 'ECG, cardiac enzymes, aspirin',
-      },
-      {
-        age: '62',
-        sex: 'M',
-        cc: 'Difficulty breathing',
-        pi: 'Progressive dyspnea over 3 days',
-        exam: 'BP: 130/80, SpO2: 91%',
-        preDx: 'Pneumonia',
-        treatment: 'Chest X-ray, antibiotics',
-      },
-      {
-        age: '28',
-        sex: 'F',
-        cc: 'Severe headache',
-        pi: 'Sudden severe headache, 9/10',
-        exam: 'Neurological exam normal',
-        preDx: 'Migraine',
-        treatment: 'IV fluids, antiemetics',
-      },
-    ];
-    
-    setPreviewData(mockPreview);
-    toast.success('File loaded successfully');
   };
 
   const handleRemoveFile = () => {
     setFile(null);
-    setPreviewData([]);
   };
 
   const handleSubmit = async () => {
@@ -99,16 +75,42 @@ export default function UploadPage() {
 
     setIsProcessing(true);
     
-    // Simulate API call to /api/analyze
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    
-    toast.success('Cases submitted for AI analysis');
-    setIsProcessing(false);
-    
-    // Reset form after submission
-    setTimeout(() => {
-      handleRemoveFile();
-    }, 1000);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/excel/extract', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to extract Excel data');
+      }
+      
+      const result: ExcelExtractResponse = await response.json();
+      
+      const { totalInserted, insertedCases } = result.metadata;
+      
+      console.log('Stored cases:', insertedCases);
+      
+      toast.success(`Successfully stored ${totalInserted} patient records as new cases`);
+      
+      // Simulate AI analysis processing
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      
+      toast.success('Cases submitted for AI analysis successfully');
+      
+      // Reset form after submission
+      setTimeout(() => {
+        handleRemoveFile();
+      }, 1000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to process Excel file');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -170,49 +172,17 @@ export default function UploadPage() {
                   <div>
                     <h3 className="font-semibold text-gray-900">{file.name}</h3>
                     <p className="text-sm text-gray-600">
-                      {(file.size / 1024).toFixed(2)} KB • {previewData.length} rows
+                      {(file.size / 1024).toFixed(2)} KB
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleRemoveFile}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  disabled={isProcessing}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
                 >
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
-              </div>
-            </div>
-
-            {/* Preview Table */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">Data Preview</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Age</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Sex</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Chief Complaint</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Present Illness</th>
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-700">Pre-Diagnosis</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewData.map((row, idx) => (
-                      <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-3 px-4 text-sm text-gray-900">{row.age}</td>
-                        <td className="py-3 px-4 text-sm text-gray-900">{row.sex}</td>
-                        <td className="py-3 px-4 text-sm text-gray-900 max-w-xs truncate">
-                          {row.cc}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-900 max-w-xs truncate">
-                          {row.pi}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-900">{row.preDx}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
 
@@ -223,16 +193,16 @@ export default function UploadPage() {
                 <div>
                   <h4 className="font-medium text-blue-900 mb-1">Ready to Process</h4>
                   <p className="text-sm text-blue-700">
-                    {previewData.length} patient records will be analyzed by AI
+                    File will be extracted and analyzed by AI
                   </p>
                 </div>
               </div>
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-yellow-900 mb-1">Processing Time</h4>
+                  <h4 className="font-medium text-yellow-900 mb-1">Processing</h4>
                   <p className="text-sm text-yellow-700">
-                    Estimated time: ~{previewData.length * 2} seconds
+                    Data extraction + AI analysis
                   </p>
                 </div>
               </div>
