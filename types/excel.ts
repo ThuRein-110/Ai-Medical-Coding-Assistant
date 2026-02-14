@@ -10,6 +10,11 @@ export interface ExcelMetadata {
   uploadedAt: string
 }
 
+export interface SavedPatient {
+  id: string
+  admission_number: string
+}
+
 export interface ExcelExtractionResponse {
   success: boolean
   data: Record<string, any[]>
@@ -52,12 +57,25 @@ export interface ProcessDiagnosesResult {
   error?: string
 }
 
+/**
+ * ICD Diagnosis result with code_results count
+ */
+export interface ICDDiagnosisResult {
+  patient_id: string
+  an: string
+  diag_id: string | null
+  codeResultsInserted: number
+  inserted: boolean
+  error?: string
+}
+
 export interface ExcelExtractionWithCodingResponse {
   success: boolean
   data: Record<string, any[]>
   metadata: ExcelMetadata & {
     totalInserted: number
-    insertedPatients: string[]
+    savedPatients: SavedPatient[]
   }
   diagnosisCoding: ProcessDiagnosesResult | null
+  icdDiagnosis: ICDDiagnosisResult[]
 }

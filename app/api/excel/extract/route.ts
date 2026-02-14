@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
-import { processDiagnosisCoding } from '@/lib/diagnosis-coding'
+import { processDiagnosisCoding, BatchCodeResult } from '@/lib/diagnosis-coding'
 
 // Column mapping from Excel headers to database field names
 const COLUMN_MAPPING: Record<string, string> = {
@@ -34,6 +34,20 @@ interface MappedRow {
   patient_examine: string
   pre_diagnosis: string
   treatment_plan: string
+}
+
+interface SavedPatient {
+  id: string
+  admission_number: string
+}
+
+interface ICDDiagnosisResult {
+  patient_id: string
+  an: string
+  diag_id: string | null
+  codeResultsInserted: number
+  inserted: boolean
+  error?: string
 }
 
 function normalizeColumnName(header: string): string {
@@ -112,7 +126,7 @@ export async function POST(request: Request) {
 
     // Extract, map and store data from all sheets
     const sheets: Record<string, MappedRow[]> = {}
-    const insertedPatients: string[] = []
+    const savedPatients: SavedPatient[] = []
     let totalInserted = 0
     
     // Collect records for diagnosis coding (only first 5 rows, matching patient insertion)
@@ -141,46 +155,147 @@ export async function POST(request: Request) {
       sheets[sheetName] = mappedData
 
       // Insert each row as a new patient/case in Supabase (max 5 rows)
-      // for (const row of mappedData) {
-      //   // Skip rows with no admission number
-      //   if (!row.admission_number) {
-      //     console.warn('Skipping row without admission_number:', row)
-      //     continue
-      //   }
+      for (const row of mappedData) {
+        // Skip rows with no admission number
+        if (!row.admission_number) {
+          console.warn('Skipping row without admission_number:', row)
+          continue
+        }
 
-      //   // Generate case ID
-      //   const caseId = generateCaseId()
-      //   const now = new Date().toISOString()
+        const now = new Date().toISOString()
 
-      //   // Insert into patients table
-      //   const { error: insertError } = await supabase
-      //     .from('patients')
-      //     .insert({
-      //       admission_number: row.admission_number,
-      //       age: parseInt(row.age) || null,
-      //       sex: row.sex,
-      //       chief_complaint: row.chief_complaint,
-      //       patient_illness: row.patient_illness,
-      //       patient_examine: row.patient_examine,
-      //       pre_diagnosis: row.pre_diagnosis,
-      //       treatment_plan: row.treatment_plan,
-      //       created_at: now
-      //     })
+        // Insert into patients table and get the created record
+        const { data: insertedPatient, error: insertError } = await supabase
+          .from('patients')
+          .insert({
+            admission_number: row.admission_number,
+            age: parseInt(row.age) || null,
+            sex: row.sex,
+            chief_complaint: row.chief_complaint,
+            patient_illness: row.patient_illness,
+            patient_examine: row.patient_examine,
+            pre_diagnosis: row.pre_diagnosis,
+            treatment_plan: row.treatment_plan,
+            created_at: now
+          })
+          .select('id, admission_number')
+          .single()
 
-      //   if (insertError) {
-      //     console.error('Error inserting patient:', insertError)
-      //     throw new Error(`Failed to insert patient: ${insertError.message}`)
-      //   }
+        if (insertError) {
+          console.error('Error inserting patient:', insertError)
+          throw new Error(`Failed to insert patient: ${insertError.message}`)
+        }
 
-      //   insertedPatients.push(caseId)
-      //   totalInserted++
-      // }
+        if (insertedPatient) {
+          savedPatients.push({
+            id: insertedPatient.id,
+            admission_number: insertedPatient.admission_number
+          })
+          totalInserted++
+        }
+      }
     }
 
-    // Process diagnosis coding AFTER saving patient data (only on the first 5 rows)
+    // Step 2: Process diagnosis coding AFTER saving patient data
     let diagnosisCodingResult = null
     if (recordsForCoding.length > 0 && allHeaders.length > 0) {
       diagnosisCodingResult = await processDiagnosisCoding(recordsForCoding, allHeaders)
+    }
+
+    // Step 3: Create icd_diagnosis rows and code_results matching AN to patient_id
+    const icdDiagnosisResults: ICDDiagnosisResult[] = []
+    
+    if (diagnosisCodingResult?.success && diagnosisCodingResult.results.length > 0) {
+      // Group coding results by AN (normalize to string for comparison)
+      const codingResultsByAN = new Map<string, BatchCodeResult[]>()
+      
+      for (const result of diagnosisCodingResult.results) {
+        const an = String(result.an || '').trim()
+        if (!codingResultsByAN.has(an)) {
+          codingResultsByAN.set(an, [])
+        }
+        codingResultsByAN.get(an)!.push(result)
+      }
+      
+      // Create icd_diagnosis rows for each saved patient
+      for (const patient of savedPatients) {
+        const an = String(patient.admission_number).trim()
+        const codeResults = codingResultsByAN.get(an) || []
+        
+        if (codeResults.length > 0) {
+          const now = new Date().toISOString()
+          
+          // 3a. Create icd_diagnosis row
+          const { data: icdDiagnosis, error: icdInsertError } = await supabase
+            .from('icd_diagnosis')
+            .insert({
+              patient_id: patient.id,
+              status: 0, // 0: pending, 1: approved, 2: modified, 3: rejected
+              comment: null,
+              created_at: now
+            })
+            .select('id')
+            .single()
+          
+          if (icdInsertError) {
+            console.error('Error inserting icd_diagnosis:', icdInsertError)
+            icdDiagnosisResults.push({
+              patient_id: patient.id,
+              an: an,
+              diag_id: null,
+              codeResultsInserted: 0,
+              inserted: false,
+              error: icdInsertError.message
+            })
+            continue
+          }
+          
+          const diagId = icdDiagnosis!.id
+          
+          // 3b. Create code_results rows for each coding result
+          const codeResultsData = codeResults.map(result => ({
+            diag_id: diagId,
+            code: result.icd_code,
+            desc: result.official_description || result.input_diagnosis,
+            comment: result.notes || null,
+            created_at: now
+          }))
+          
+          const { error: codeResultsError } = await supabase
+            .from('code_results')
+            .insert(codeResultsData)
+          
+          if (codeResultsError) {
+            console.error('Error inserting code_results:', codeResultsError)
+            icdDiagnosisResults.push({
+              patient_id: patient.id,
+              an: an,
+              diag_id: diagId,
+              codeResultsInserted: 0,
+              inserted: false,
+              error: codeResultsError.message
+            })
+          } else {
+            icdDiagnosisResults.push({
+              patient_id: patient.id,
+              an: an,
+              diag_id: diagId,
+              codeResultsInserted: codeResultsData.length,
+              inserted: true
+            })
+          }
+        } else {
+          // No coding results found for this patient
+          icdDiagnosisResults.push({
+            patient_id: patient.id,
+            an: an,
+            diag_id: null,
+            codeResultsInserted: 0,
+            inserted: false,
+            error: 'No coding results found for this AN'
+          })
+        }
+      }
     }
 
     // Get workbook metadata
@@ -191,15 +306,16 @@ export async function POST(request: Request) {
       sheetCount: workbook.SheetNames.length,
       uploadedAt: new Date().toISOString(),
       totalInserted,
-      insertedPatients,
+      savedPatients,
     }
-    console.log(JSON.stringify(diagnosisCodingResult))
+
     return NextResponse.json(
       {
         success: true,
         data: sheets,
         metadata,
         diagnosisCoding: diagnosisCodingResult,
+        icdDiagnosis: icdDiagnosisResults,
       },
       { status: 200 }
     )

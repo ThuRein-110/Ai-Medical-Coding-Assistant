@@ -1,4 +1,6 @@
-import { batchDiagnosisToCode, BatchCodeResult, DiagnosisInput } from "./gemini";
+import { batchDiagnosisToCode, type BatchCodeResult, type DiagnosisInput } from "./gemini";
+
+export type { BatchCodeResult };
 import { findDiagnosisColumns } from "./parseExcel";
 
 export interface DiagnosisEntry extends DiagnosisInput {
