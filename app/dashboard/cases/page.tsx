@@ -1,52 +1,96 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { mockCases } from '../../utils/mockData';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { icdDiagnosisApi } from '@/lib/icd-diagnosis-api';
+import { STATUS_LABELS, STATUS_COLORS, type ICDDiagnosisWithPatient } from '@/types/icd-diagnosis';
+import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
+
+// Map status number to string for URL/param compatibility
+const STATUS_MAP: Record<string, number | 'all'> = {
+  all: 'all',
+  pending: 0,
+  approved: 1,
+  modified: 2,
+  rejected: 3,
+};
+
+const STATUS_REVERSE_MAP: Record<number, string> = {
+  0: 'pending',
+  1: 'approved',
+  2: 'modified',
+  3: 'rejected',
+};
 
 export default function CaseListPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  
+  // API data states
+  const [diagnoses, setDiagnoses] = useState<ICDDiagnosisWithPatient[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Filter cases
-  const filteredCases = mockCases.filter((caseItem) => {
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const statusValue = STATUS_MAP[statusFilter];
+        const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+
+        const response = await icdDiagnosisApi.getList({
+          status: statusValue === 'all' ? undefined : statusValue,
+          limit: ITEMS_PER_PAGE,
+          offset,
+        });
+
+        if (response.success) {
+          setDiagnoses(response.data);
+          setTotalCount(response.count);
+        } else {
+          setError('Failed to fetch cases');
+        }
+      } catch (err) {
+        console.error('Error fetching cases:', err);
+        setError('Error loading cases');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [currentPage, statusFilter]);
+
+  // Filter cases by search term (client-side)
+  const filteredDiagnoses = diagnoses.filter((item) => {
+    const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
-      caseItem.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.primaryDiagnosis.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === 'all' || caseItem.status === statusFilter;
-    return matchesSearch && matchesStatus;
+      String(item.patient.admission_number || '').toLowerCase().includes(searchLower) ||
+      String(item.patient.chief_complaint || '').toLowerCase().includes(searchLower) ||
+      String(item.patient.pre_diagnosis || '').toLowerCase().includes(searchLower);
+    return matchesSearch;
   });
 
   // Pagination
-  const totalPages = Math.ceil(filteredCases.length / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentCases = filteredCases.slice(startIndex, endIndex);
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalCount);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      pending: 'bg-yellow-100 text-yellow-700',
-      approved: 'bg-green-100 text-green-700',
-      modified: 'bg-purple-100 text-purple-700',
-      rejected: 'bg-red-100 text-red-700',
-    };
-    return styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-700';
-  };
-
-  const getConfidenceBadge = (confidence: number) => {
-    if (confidence >= 85) return 'bg-green-100 text-green-700';
-    if (confidence >= 70) return 'bg-yellow-100 text-yellow-700';
-    return 'bg-red-100 text-red-700';
+  const getStatusBadge = (status: number) => {
+    const colors = STATUS_COLORS[status] || STATUS_COLORS[0];
+    return `${colors.bg} ${colors.text}`;
   };
 
   const formatDate = (dateString: string) => {
@@ -75,7 +119,7 @@ export default function CaseListPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by case ID or diagnosis..."
+              placeholder="Search by admission number or diagnosis..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -104,99 +148,116 @@ export default function CaseListPage() {
 
         {/* Results Count */}
         <div className="mt-4 text-sm text-gray-600">
-          Showing {startIndex + 1} - {Math.min(endIndex, filteredCases.length)} of{' '}
-          {filteredCases.length} cases
+          Showing {totalCount > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, totalCount)} of{' '}
+          {totalCount} cases
         </div>
       </div>
+
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="ml-3 text-gray-600">Loading cases...</span>
+        </div>
+      )}
+
+      {/* Error State */}
+      {!loading && error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-700">
+          <p>{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Case ID
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Age
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Sex
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Primary Diagnosis (AI)
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Confidence
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Status
-                </th>
-                <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                  Last Updated
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentCases.map((caseItem) => (
-                <tr
-                  key={caseItem.id}
-                  className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                >
-                  <td className="py-4 px-6">
-                    <Link
-                      href={`/dashboard/cases/${caseItem.id}`}
-                      className="text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      {caseItem.id}
-                    </Link>
-                  </td>
-                  <td className="py-4 px-6 text-gray-900">
-                    {caseItem.patientData.age}
-                  </td>
-                  <td className="py-4 px-6 text-gray-900">
-                    {caseItem.patientData.sex}
-                  </td>
-                  <td className="py-4 px-6 text-gray-900 max-w-md truncate">
-                    {caseItem.primaryDiagnosis}
-                  </td>
-                  <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(
-                        caseItem.overallConfidence
-                      )}`}
-                    >
-                      {caseItem.overallConfidence}%
-                    </span>
-                  </td>
-                  <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadge(
-                        caseItem.status
-                      )}`}
-                    >
-                      {caseItem.status}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6 text-sm text-gray-600">
-                    {formatDate(caseItem.lastUpdated)}
-                  </td>
+      {!loading && !error && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Admission Number
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Age
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Sex
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Chief Complaint
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Pre-diagnosis
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Status
+                  </th>
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    Created
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {currentCases.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <p>No cases found matching your filters</p>
+              </thead>
+              <tbody>
+                {filteredDiagnoses.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
+                    <td className="py-4 px-6">
+                      <Link
+                        href={`/dashboard/cases/${item.id}`}
+                        className="text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        {item.patient.admission_number}
+                      </Link>
+                    </td>
+                    <td className="py-4 px-6 text-gray-900">
+                      {item.patient.age || '-'}
+                    </td>
+                    <td className="py-4 px-6 text-gray-900">
+                      {item.patient.sex || '-'}
+                    </td>
+                    <td className="py-4 px-6 text-gray-900 max-w-xs truncate">
+                      {item.patient.chief_complaint || '-'}
+                    </td>
+                    <td className="py-4 px-6 text-gray-900 max-w-xs truncate">
+                      {item.patient.pre_diagnosis || '-'}
+                    </td>
+                    <td className="py-4 px-6">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadge(
+                          item.status
+                        )}`}
+                      >
+                        {STATUS_LABELS[item.status] || 'Unknown'}
+                      </span>
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {formatDate(item.created_at)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+
+          {filteredDiagnoses.length === 0 && (
+            <div className="text-center py-12 text-gray-500">
+              <p>No cases found matching your filters</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {!loading && !error && totalPages > 1 && (
         <div className="mt-6 flex items-center justify-between">
           <button
             onClick={() => handlePageChange(currentPage - 1)}

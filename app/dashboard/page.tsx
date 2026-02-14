@@ -1,8 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { mockCases, mockAuditLogs, getCaseStatistics } from '../utils/mockData';
 import { useAuth } from '../contexts/AuthContext';
+import { dashboardApi } from '@/lib/dashboard-api';
+import type { DashboardAnalytics } from '@/types/dashboard';
 import {
   FileText,
   Clock,
@@ -11,19 +13,51 @@ import {
   XCircle,
   TrendingUp,
   Activity,
+  Loader2,
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const stats = getCaseStatistics(mockCases);
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Get recent activity from audit logs
-  const recentActivity = mockAuditLogs.slice(0, 5);
+  // Fetch analytics data on mount
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        setLoading(true);
+        const response = await dashboardApi.getAnalytics();
+        
+        if (response.success && response.data) {
+          setAnalytics(response.data);
+        } else {
+          setError('Failed to load analytics data');
+        }
+      } catch (err) {
+        console.error('Error fetching analytics:', err);
+        setError('Error loading dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+  }, []);
+
+  // Use API data if available, otherwise fallback to mock data
+  const stats = analytics || {
+    totalCases: 0,
+    pendingCount: 0,
+    approvedCount: 0,
+    modifiedCount: 0,
+    rejectedCount: 0,
+  };
 
   const statCards = [
     {
       label: 'Total Cases',
-      value: stats.total,
+      value: stats.totalCases,
       icon: <FileText className="w-6 h-6" />,
       color: 'bg-blue-500',
       textColor: 'text-blue-600',
@@ -31,7 +65,7 @@ export default function DashboardPage() {
     },
     {
       label: 'Pending Review',
-      value: stats.pending,
+      value: stats.pendingCount,
       icon: <Clock className="w-6 h-6" />,
       color: 'bg-yellow-500',
       textColor: 'text-yellow-600',
@@ -39,7 +73,7 @@ export default function DashboardPage() {
     },
     {
       label: 'Approved',
-      value: stats.approved,
+      value: stats.approvedCount,
       icon: <CheckCircle className="w-6 h-6" />,
       color: 'bg-green-500',
       textColor: 'text-green-600',
@@ -47,7 +81,7 @@ export default function DashboardPage() {
     },
     {
       label: 'Modified',
-      value: stats.modified,
+      value: stats.modifiedCount,
       icon: <Edit className="w-6 h-6" />,
       color: 'bg-purple-500',
       textColor: 'text-purple-600',
@@ -55,13 +89,17 @@ export default function DashboardPage() {
     },
     {
       label: 'Rejected',
-      value: stats.rejected,
+      value: stats.rejectedCount,
       icon: <XCircle className="w-6 h-6" />,
       color: 'bg-red-500',
       textColor: 'text-red-600',
       bgColor: 'bg-red-50',
     },
   ];
+
+  // Get recent activity from audit logs (still using mock for now)
+  const recentActivity = mockAuditLogs.slice(0, 5);
+  const mockStats = getCaseStatistics(mockCases);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -82,6 +120,18 @@ export default function DashboardPage() {
     return styles[action as keyof typeof styles] || 'bg-gray-100 text-gray-700';
   };
 
+  // Calculate completion and approval rates
+  const totalProcessed = stats.approvedCount + stats.modifiedCount + stats.rejectedCount;
+  const completionRate = stats.totalCases > 0 
+    ? Math.round((totalProcessed / stats.totalCases) * 100) 
+    : 0;
+  const approvalRate = stats.totalCases > 0 
+    ? Math.round((stats.approvedCount / stats.totalCases) * 100) 
+    : 0;
+  const modificationRate = stats.totalCases > 0 
+    ? Math.round((stats.modifiedCount / stats.totalCases) * 100) 
+    : 0;
+
   return (
     <div className="p-8">
       {/* Header */}
@@ -95,24 +145,35 @@ export default function DashboardPage() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-        {statCards.map((card) => (
-          <div
-            key={card.label}
-            className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className={`${card.bgColor} p-3 rounded-xl`}>
-                <div className={card.textColor}>{card.icon}</div>
+      {loading ? (
+        <div className="flex items-center justify-center h-48 mb-8">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="ml-3 text-gray-600">Loading analytics...</span>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-8 text-red-700">
+          {error}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          {statCards.map((card) => (
+            <div
+              key={card.label}
+              className="bg-white rounded-2xl border border-gray-200 p-6 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className={`${card.bgColor} p-3 rounded-xl`}>
+                  <div className={card.textColor}>{card.icon}</div>
+                </div>
               </div>
+              <div className="text-3xl font-bold text-gray-900 mb-1">
+                {card.value}
+              </div>
+              <div className="text-sm text-gray-600">{card.label}</div>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">
-              {card.value}
-            </div>
-            <div className="text-sm text-gray-600">{card.label}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -179,24 +240,13 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-gray-600">Completion Rate</span>
                 <span className="text-sm font-bold text-gray-900">
-                  {Math.round(
-                    ((stats.approved + stats.modified + stats.rejected) /
-                      stats.total) *
-                      100
-                  )}
-                  %
+                  {completionRate}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-blue-600 h-2 rounded-full transition-all"
-                  style={{
-                    width: `${
-                      ((stats.approved + stats.modified + stats.rejected) /
-                        stats.total) *
-                      100
-                    }%`,
-                  }}
+                  style={{ width: `${completionRate}%` }}
                 />
               </div>
             </div>
@@ -206,20 +256,13 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-gray-600">Approval Rate</span>
                 <span className="text-sm font-bold text-gray-900">
-                  {stats.total > 0
-                    ? Math.round((stats.approved / stats.total) * 100)
-                    : 0}
-                  %
+                  {approvalRate}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-green-600 h-2 rounded-full transition-all"
-                  style={{
-                    width: `${
-                      stats.total > 0 ? (stats.approved / stats.total) * 100 : 0
-                    }%`,
-                  }}
+                  style={{ width: `${approvalRate}%` }}
                 />
               </div>
             </div>
@@ -229,20 +272,13 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-gray-600">Modification Rate</span>
                 <span className="text-sm font-bold text-gray-900">
-                  {stats.total > 0
-                    ? Math.round((stats.modified / stats.total) * 100)
-                    : 0}
-                  %
+                  {modificationRate}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-purple-600 h-2 rounded-full transition-all"
-                  style={{
-                    width: `${
-                      stats.total > 0 ? (stats.modified / stats.total) * 100 : 0
-                    }%`,
-                  }}
+                  style={{ width: `${modificationRate}%` }}
                 />
               </div>
             </div>
