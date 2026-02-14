@@ -1,53 +1,284 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { mockCases } from '../../../utils/mockData';
-import { useAuth } from '../../../contexts/AuthContext';
+import { icdDiagnosisApi } from '@/lib/icd-diagnosis-api';
+import { codeResultsApi } from '@/lib/code-results-api';
+import { STATUS_LABELS, STATUS_COLORS, type ICDDiagnosisDetail } from '@/types/icd-diagnosis';
+import ICD10Dropdown from '@/app/components/ICD10Dropdown';
 import {
   ArrowLeft,
   User,
   Activity,
-  AlertTriangle,
   FileText,
   Plus,
   X,
   Check,
-  Edit,
   Ban,
-  ChevronDown,
-  ChevronUp,
-  Lock,
+  Edit3,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Individual code status type
+type CodeStatus = 'pending' | 'accepted' | 'rejected' | 'modified';
+
+interface CodeWithStatus {
+  id: string;
+  code: string;
+  desc: string;
+  originalCode: string;
+  originalDesc: string;
+  status: CodeStatus;
+}
 
 export default function CaseDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
   const caseId = params.caseId as string;
-  const caseData = mockCases.find((c) => c.id === caseId);
 
-  // Pre-populate with AI suggestions by default
-  const [finalICD10, setFinalICD10] = useState<string[]>(
-    caseData?.aiSuggestion.icd10Codes.map((c) => c.code) || []
-  );
-  const [finalICD9, setFinalICD9] = useState<string[]>(
-    caseData?.aiSuggestion.icd9Procedures.map((c) => c.code) || []
-  );
-  const [newICD10, setNewICD10] = useState('');
-  const [newICD9, setNewICD9] = useState('');
+  // Data states
+  const [diagnosisData, setDiagnosisData] = useState<ICDDiagnosisDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form states
+  const [codes, setCodes] = useState<CodeWithStatus[]>([]);
+  const [newCode, setNewCode] = useState('');
+  const [newDesc, setNewDesc] = useState('');
   const [comment, setComment] = useState('');
-  const [showEvidence, setShowEvidence] = useState(false);
 
-  // Check if user can edit (only admin)
-  const canEdit = user?.role === 'admin';
+  // Fetch case data
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!caseId) return;
 
-  if (!caseData) {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await icdDiagnosisApi.getById(caseId);
+
+        if (response.success && response.data) {
+          setDiagnosisData(response.data);
+          
+          // Initialize codes with status
+          const codesWithStatus: CodeWithStatus[] = response.data.code_results.map((cr) => ({
+            id: cr.id,
+            code: cr.code,
+            desc: cr.desc,
+            originalCode: cr.code,
+            originalDesc: cr.desc,
+            status: 'pending',
+          }));
+          setCodes(codesWithStatus);
+          
+          setComment(response.data.comment || '');
+        } else {
+          setError('Failed to fetch case details');
+        }
+      } catch (err) {
+        console.error('Error fetching case:', err);
+        setError('Error loading case details');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [caseId]);
+
+  // Handle code change (local only)
+  const handleCodeChange = (id: string, newCodeValue: string) => {
+    setCodes((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        
+        const updated = { ...item, code: newCodeValue };
+        // If code changed from original, set to modified
+        if (newCodeValue !== item.originalCode && item.status !== 'accepted' && item.status !== 'rejected') {
+          updated.status = 'modified';
+        }
+        return updated;
+      })
+    );
+  };
+
+  // Handle desc change (local only)
+  const handleDescChange = (id: string, newDescValue: string) => {
+    setCodes((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        
+        const updated = { ...item, desc: newDescValue };
+        // If desc changed from original, set to modified
+        if (newDescValue !== item.originalDesc && item.status !== 'accepted' && item.status !== 'rejected') {
+          updated.status = 'modified';
+        }
+        return updated;
+      })
+    );
+  };
+
+  // Accept a code (local only)
+  const handleAccept = (id: string) => {
+    setCodes((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, status: 'accepted', code: item.originalCode, desc: item.originalDesc }
+          : item
+      )
+    );
+  };
+
+  // Reject a code (local only)
+  const handleReject = (id: string) => {
+    setCodes((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, status: 'rejected' } : item
+      )
+    );
+  };
+
+  // Remove a code
+  const removeCode = (id: string) => {
+    setCodes((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Add new code (local only)
+  const addNewCode = () => {
+    if (newCode.trim()) {
+      const tempId = `new-${Date.now()}`;
+      setCodes((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          code: newCode.trim(),
+          desc: newDesc.trim(),
+          originalCode: newCode.trim(),
+          originalDesc: newDesc.trim(),
+          status: 'modified', // New codes are considered modified
+        },
+      ]);
+      setNewCode('');
+      setNewDesc('');
+    }
+  };
+
+  // Calculate overall status
+  const getOverallStatus = (): { canSubmit: boolean; action: 'approve' | 'modify' | 'reject' | null; message: string } => {
+    if (codes.length === 0) {
+      return { canSubmit: false, action: null, message: 'No codes to review' };
+    }
+
+    const hasPending = codes.some((c) => c.status === 'pending');
+    const hasRejected = codes.some((c) => c.status === 'rejected');
+    const hasModified = codes.some((c) => c.status === 'modified');
+    const allAccepted = codes.every((c) => c.status === 'accepted');
+
+    if (hasPending) {
+      return { canSubmit: false, action: null, message: 'Please review all codes before submitting' };
+    }
+
+    if (hasRejected) {
+      return { canSubmit: true, action: 'reject', message: 'One or more codes rejected - case will be rejected' };
+    }
+
+    if (hasModified) {
+      return { canSubmit: true, action: 'modify', message: 'Codes modified - ready to submit' };
+    }
+
+    if (allAccepted) {
+      return { canSubmit: true, action: 'approve', message: 'All codes accepted - ready to approve' };
+    }
+
+    return { canSubmit: false, action: null, message: '' };
+  };
+
+  const overallStatus = getOverallStatus();
+
+  // Handle submit action - API calls happen here only
+  const handleSubmit = async () => {
+    if (!diagnosisData || !overallStatus.canSubmit || !overallStatus.action) return;
+
+    setSubmitting(true);
+
+    try {
+      // First, update all modified code_results
+      const codesToUpdate = codes.filter(
+        (c) => c.status === 'modified' || (c.status === 'accepted' && (c.code !== c.originalCode || c.desc !== c.originalDesc))
+      );
+      
+      for (const code of codesToUpdate) {
+        await codeResultsApi.update(diagnosisData.id, code.id, {
+          code: code.code,
+          desc: code.desc,
+        });
+      }
+
+      // Then, update icd_diagnosis status
+      if (overallStatus.action === 'approve') {
+        await icdDiagnosisApi.approve(diagnosisData.id);
+        toast.success('Case approved successfully');
+      } else if (overallStatus.action === 'modify') {
+        await icdDiagnosisApi.markModified(diagnosisData.id);
+        toast.success('Case modified successfully');
+      } else if (overallStatus.action === 'reject') {
+        await icdDiagnosisApi.reject(diagnosisData.id);
+        toast.success('Case rejected');
+      }
+
+      // Update comment if provided
+      if (comment && comment !== diagnosisData.comment) {
+        await icdDiagnosisApi.updateComment(diagnosisData.id, comment);
+      }
+
+      // Navigate back
+      setTimeout(() => {
+        router.push('/cases');
+      }, 1000);
+    } catch (err) {
+      console.error('Error submitting:', err);
+      toast.error('Failed to submit changes');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Get status color for individual code
+  const getCodeStatusColor = (status: CodeStatus) => {
+    switch (status) {
+      case 'accepted':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'rejected':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'modified':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="ml-3 text-gray-600">Loading case details...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error || !diagnosisData) {
     return (
       <div className="p-8">
         <div className="text-center py-12">
-          <p className="text-gray-600">Case not found</p>
+          <p className="text-red-600">{error || 'Case not found'}</p>
           <button
             onClick={() => router.push('/cases')}
             className="mt-4 text-blue-600 hover:text-blue-700"
@@ -59,81 +290,9 @@ export default function CaseDetailPage() {
     );
   }
 
-  const handleAction = async (action: 'approve' | 'modify' | 'reject') => {
-    if (!canEdit) {
-      toast.error('Only administrators can review cases');
-      return;
-    }
-
-    // Simulate API call to /api/feedback
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const actionMessages = {
-      approve: 'Case approved successfully',
-      modify: 'Case modified and saved',
-      reject: 'Case rejected',
-    };
-
-    toast.success(actionMessages[action]);
-
-    // Navigate back after short delay
-    setTimeout(() => {
-      router.push('/cases');
-    }, 1000);
-  };
-
-  const addICD10Code = () => {
-    if (!canEdit) {
-      toast.error('Only administrators can edit codes');
-      return;
-    }
-    if (newICD10.trim()) {
-      setFinalICD10([...finalICD10, newICD10.trim()]);
-      setNewICD10('');
-    }
-  };
-
-  const addICD9Code = () => {
-    if (!canEdit) {
-      toast.error('Only administrators can edit codes');
-      return;
-    }
-    if (newICD9.trim()) {
-      setFinalICD9([...finalICD9, newICD9.trim()]);
-      setNewICD9('');
-    }
-  };
-
-  const removeICD10 = (index: number) => {
-    if (!canEdit) {
-      toast.error('Only administrators can edit codes');
-      return;
-    }
-    setFinalICD10(finalICD10.filter((_, i) => i !== index));
-  };
-
-  const removeICD9 = (index: number) => {
-    if (!canEdit) {
-      toast.error('Only administrators can edit codes');
-      return;
-    }
-    setFinalICD9(finalICD9.filter((_, i) => i !== index));
-  };
-
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 85) return 'text-green-600 bg-green-50';
-    if (confidence >= 70) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
-  };
-
-  const getSeverityColor = (severity: string) => {
-    const colors = {
-      high: 'bg-red-100 border-red-300 text-red-700',
-      medium: 'bg-yellow-100 border-yellow-300 text-yellow-700',
-      low: 'bg-orange-100 border-orange-300 text-orange-700',
-    };
-    return colors[severity as keyof typeof colors];
-  };
+  const patient = diagnosisData.patient;
+  const statusLabel = STATUS_LABELS[diagnosisData.status] || 'Unknown';
+  const statusColors = STATUS_COLORS[diagnosisData.status] || STATUS_COLORS[0];
 
   return (
     <div className="p-8">
@@ -149,28 +308,38 @@ export default function CaseDetailPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              {caseData.id}
+              {patient.admission_number}
             </h1>
-            <p className="text-gray-600">{caseData.primaryDiagnosis}</p>
+            <p className="text-gray-600">{patient.pre_diagnosis || 'No pre-diagnosis'}</p>
           </div>
-          <span
-            className={`px-4 py-2 rounded-xl font-medium capitalize ${
-              caseData.status === 'pending'
-                ? 'bg-yellow-100 text-yellow-700'
-                : caseData.status === 'approved'
-                ? 'bg-green-100 text-green-700'
-                : caseData.status === 'modified'
-                ? 'bg-purple-100 text-purple-700'
-                : 'bg-red-100 text-red-700'
-            }`}
-          >
-            {caseData.status}
+          <div className="flex items-center gap-3">
+            {submitting && (
+              <span className="text-sm text-gray-500 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Submitting...
+              </span>
+            )}
+            <span
+              className={`px-4 py-2 rounded-xl font-medium capitalize ${statusColors.bg} ${statusColors.text} border ${statusColors.border}`}
+            >
+              {statusLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Status Alert */}
+      <div className={`mb-6 p-4 rounded-xl border ${overallStatus.canSubmit ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'}`}>
+        <div className="flex items-center gap-3">
+          <AlertCircle className={`w-5 h-5 ${overallStatus.canSubmit ? 'text-blue-600' : 'text-yellow-600'}`} />
+          <span className={overallStatus.canSubmit ? 'text-blue-800' : 'text-yellow-800'}>
+            {overallStatus.message}
           </span>
         </div>
       </div>
 
-      {/* 3-Panel Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 2-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* LEFT PANEL - Patient Data */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
           <div className="flex items-center gap-2 mb-6">
@@ -181,354 +350,226 @@ export default function CaseDetailPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-gray-500">Age</label>
-              <p className="mt-1 text-gray-900">{caseData.patientData.age} years</p>
+              <p className="mt-1 text-gray-900">{patient.age ? `${patient.age} years` : '-'}</p>
             </div>
 
             <div>
               <label className="text-sm font-medium text-gray-500">Sex</label>
-              <p className="mt-1 text-gray-900">{caseData.patientData.sex}</p>
+              <p className="mt-1 text-gray-900">{patient.sex || '-'}</p>
             </div>
 
             <div className="pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-500">
-                Chief Complaint
-              </label>
-              <p className="mt-1 text-gray-900">
-                {caseData.patientData.chiefComplaint}
-              </p>
+              <label className="text-sm font-medium text-gray-500">Chief Complaint</label>
+              <p className="mt-1 text-gray-900">{patient.chief_complaint || '-'}</p>
             </div>
 
             <div className="pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-500">
-                Present Illness
-              </label>
-              <p className="mt-1 text-gray-900">
-                {caseData.patientData.presentIllness}
-              </p>
+              <label className="text-sm font-medium text-gray-500">Present Illness</label>
+              <p className="mt-1 text-gray-900">{patient.patient_illness || '-'}</p>
             </div>
 
             <div className="pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-500">
-                Patient Examine
-              </label>
-              <p className="mt-1 text-gray-900">
-                {caseData.patientData.patientExamine}
-              </p>
+              <label className="text-sm font-medium text-gray-500">Patient Examine</label>
+              <p className="mt-1 text-gray-900">{patient.patient_examine || '-'}</p>
             </div>
 
             <div className="pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-500">
-                Pre-diagnosis
-              </label>
-              <p className="mt-1 text-gray-900">
-                {caseData.patientData.preDiagnosis}
-              </p>
+              <label className="text-sm font-medium text-gray-500">Pre-diagnosis</label>
+              <p className="mt-1 text-gray-900">{patient.pre_diagnosis || '-'}</p>
             </div>
 
             <div className="pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-500">
-                Treatment Plan
-              </label>
-              <p className="mt-1 text-gray-900">
-                {caseData.patientData.treatmentPlan}
-              </p>
+              <label className="text-sm font-medium text-gray-500">Treatment Plan</label>
+              <p className="mt-1 text-gray-900">{patient.treatment_plan || '-'}</p>
             </div>
           </div>
         </div>
 
-        {/* MIDDLE PANEL - AI Suggestions */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <Activity className="w-5 h-5 text-blue-600" />
-            <h2 className="text-xl font-bold text-gray-900">AI Suggestions</h2>
-          </div>
-
-          {/* ICD-10 Codes */}
-          <div className="mb-6">
-            <h3 className="font-semibold text-gray-900 mb-3">
-              ICD-10 Diagnosis Codes
-            </h3>
-            <div className="space-y-3">
-              {caseData.aiSuggestion.icd10Codes.map((code, idx) => (
-                <div
-                  key={idx}
-                  className="p-4 bg-gray-50 rounded-xl border border-gray-200"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <span className="font-mono font-semibold text-blue-600">
-                      {code.code}
-                    </span>
-                    <span
-                      className={`text-xs px-2 py-1 rounded-full font-medium ${getConfidenceColor(
-                        code.confidence
-                      )}`}
-                    >
-                      {code.confidence}%
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-900 mb-2">{code.description}</p>
-                  <p className="text-xs text-gray-600 italic">{code.reason}</p>
-                </div>
-              ))}
+        {/* RIGHT PANEL - ICD-10 Codes Review */}
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200 bg-gradient-to-br from-blue-100 to-blue-50">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl font-bold text-gray-900">ICD-10 Diagnosis Codes Review</h2>
             </div>
           </div>
 
-          {/* ICD-9 Procedures */}
-          {caseData.aiSuggestion.icd9Procedures.length > 0 && (
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                ICD-9 Procedure Codes
-              </h3>
-              <div className="space-y-3">
-                {caseData.aiSuggestion.icd9Procedures.map((code, idx) => (
-                  <div
-                    key={idx}
-                    className="p-4 bg-gray-50 rounded-xl border border-gray-200"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <span className="font-mono font-semibold text-purple-600">
-                        {code.code}
-                      </span>
+          <div className="divide-y divide-gray-200">
+            {codes.length > 0 ? (
+              codes.map((codeItem) => {
+                const isPending = codeItem.status === 'pending';
+                const isAccepted = codeItem.status === 'accepted';
+                const isRejected = codeItem.status === 'rejected';
+                const isModified = codeItem.status === 'modified';
+
+                return (
+                  <div key={codeItem.id} className="p-6">
+                    {/* Status Badge */}
+                    <div className="flex items-center justify-between mb-4">
                       <span
-                        className={`text-xs px-2 py-1 rounded-full font-medium ${getConfidenceColor(
-                          code.confidence
+                        className={`text-xs px-2.5 py-1 rounded-full font-semibold uppercase border ${getCodeStatusColor(
+                          codeItem.status
                         )}`}
                       >
-                        {code.confidence}%
+                        {codeItem.status}
                       </span>
+                      <button
+                        onClick={() => removeCode(codeItem.id)}
+                        className="text-red-600 hover:text-red-700 p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
-                    <p className="text-sm text-gray-900 mb-2">{code.description}</p>
-                    <p className="text-xs text-gray-600 italic">{code.reason}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Missing Documentation Alerts */}
-          {caseData.aiSuggestion.missingDocAlerts.length > 0 && (
-            <div className="mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-                <h3 className="font-semibold text-gray-900">
-                  Missing Documentation
-                </h3>
-              </div>
-              <div className="space-y-2">
-                {caseData.aiSuggestion.missingDocAlerts.map((alert) => (
-                  <div
-                    key={alert.id}
-                    className={`p-3 rounded-xl border ${getSeverityColor(
-                      alert.severity
-                    )}`}
-                  >
-                    <p className="text-sm font-medium">{alert.message}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Evidence Snippets */}
-          {caseData.aiSuggestion.evidenceSnippets.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowEvidence(!showEvidence)}
-                className="flex items-center justify-between w-full p-3 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-gray-600" />
-                  <span className="font-semibold text-gray-900">
-                    Evidence Snippets
-                  </span>
-                </div>
-                {showEvidence ? (
-                  <ChevronUp className="w-5 h-5 text-gray-600" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-600" />
-                )}
-              </button>
-
-              {showEvidence && (
-                <div className="mt-3 space-y-2">
-                  {caseData.aiSuggestion.evidenceSnippets.map((snippet) => (
-                    <div
-                      key={snippet.id}
-                      className="p-3 bg-blue-50 border border-blue-200 rounded-xl"
-                    >
-                      <p className="text-xs font-medium text-blue-900 mb-1">
-                        {snippet.source}
-                      </p>
-                      <p className="text-sm text-blue-700">"{snippet.text}"</p>
+                    {/* Original Suggestion */}
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1">AI Suggested</p>
+                      <p className="font-mono font-semibold text-blue-700">{codeItem.originalCode}</p>
+                      <p className="text-sm text-gray-700">{codeItem.originalDesc}</p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
 
-        {/* RIGHT PANEL - Coder Review */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <Edit className="w-5 h-5 text-blue-600" />
-            <h2 className="text-xl font-bold text-gray-900">Coder Review</h2>
-            {!canEdit && (
-              <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
-                <Lock className="w-4 h-4 text-gray-600" />
-                <span className="text-xs text-gray-600">View Only</span>
+                    {/* Editable Fields */}
+                    <div className="space-y-3">
+                      {/* Code Dropdown */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Code</label>
+                        <ICD10Dropdown
+                          value={codeItem.code}
+                          onChange={(value) => handleCodeChange(codeItem.id, value)}
+                          placeholder="Search or type ICD-10 code..."
+                        />
+                      </div>
+
+                      {/* Description Input */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                        <input
+                          type="text"
+                          value={codeItem.desc}
+                          onChange={(e) => handleDescChange(codeItem.id, e.target.value)}
+                          placeholder="Enter description..."
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={() => handleAccept(codeItem.id)}
+                          disabled={isModified}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                            isAccepted
+                              ? 'bg-green-600 text-white'
+                              : isModified
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          }`}
+                        >
+                          <Check className="w-4 h-4" />
+                          {isAccepted ? 'Accepted' : 'Accept'}
+                        </button>
+                        <button
+                          onClick={() => handleReject(codeItem.id)}
+                          disabled={isModified}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-colors ${
+                            isRejected
+                              ? 'bg-red-600 text-white'
+                              : isModified
+                              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                              : 'bg-red-100 text-red-700 hover:bg-red-200'
+                          }`}
+                        >
+                          <Ban className="w-4 h-4" />
+                          {isRejected ? 'Rejected' : 'Reject'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                <p>No ICD-10 codes available</p>
               </div>
             )}
-          </div>
 
-          {/* Admin-only notice */}
-          {!canEdit && (
-            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-              <p className="text-sm text-yellow-800">
-                <strong>Note:</strong> Only administrators can edit and approve cases. You can view AI suggestions and default codes.
-              </p>
-            </div>
-          )}
-
-          {/* Final ICD-10 Codes */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Final ICD-10 Codes {!canEdit && '(AI Default)'}
-            </label>
-            <div className="space-y-2 mb-2">
-              {finalICD10.map((code, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
-                >
-                  <span className="font-mono text-sm">{code}</span>
-                  {canEdit && (
-                    <button
-                      onClick={() => removeICD10(idx)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {canEdit && (
-              <div className="flex gap-2">
+            {/* Add New Code */}
+            <div className="p-6 bg-gray-50 border-t border-gray-200">
+              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                Add New Code
+              </label>
+              <div className="space-y-3">
+                <ICD10Dropdown
+                  value={newCode}
+                  onChange={setNewCode}
+                  placeholder="Search or type ICD-10 code..."
+                />
                 <input
                   type="text"
-                  value={newICD10}
-                  onChange={(e) => setNewICD10(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addICD10Code()}
-                  placeholder="Add ICD-10 code"
-                  className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  placeholder="Enter description..."
+                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
-                  onClick={addICD10Code}
-                  className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors"
+                  onClick={addNewCode}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all"
                 >
-                  <Plus className="w-5 h-5" />
+                  <Plus className="w-4 h-4" />
+                  Add Code
                 </button>
               </div>
-            )}
-          </div>
-
-          {/* Final ICD-9 Codes */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Final ICD-9 Procedure Codes {!canEdit && '(AI Default)'}
-            </label>
-            <div className="space-y-2 mb-2">
-              {finalICD9.map((code, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
-                >
-                  <span className="font-mono text-sm">{code}</span>
-                  {canEdit && (
-                    <button
-                      onClick={() => removeICD9(idx)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
             </div>
-            {canEdit && (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newICD9}
-                  onChange={(e) => setNewICD9(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addICD9Code()}
-                  placeholder="Add ICD-9 code"
-                  className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  onClick={addICD9Code}
-                  className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
-              </div>
-            )}
           </div>
 
-          {/* Comment */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Comment
-            </label>
+          {/* Comment Section */}
+          <div className="p-6 border-t border-gray-200 bg-gray-50">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Review Comment</label>
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder={canEdit ? "Add your review comments..." : "View only mode"}
-              rows={4}
-              disabled={!canEdit}
-              className={`w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
-                !canEdit ? 'opacity-60 cursor-not-allowed' : ''
-              }`}
+              placeholder="Add your review comments..."
+              rows={3}
+              className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
-          {/* Action Buttons */}
-          {canEdit ? (
-            <div className="space-y-3">
-              <button
-                onClick={() => handleAction('approve')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors"
-              >
+          {/* Submit Button */}
+          <div className="p-6 border-t border-gray-200">
+            <button
+              onClick={handleSubmit}
+              disabled={!overallStatus.canSubmit || submitting}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-colors ${
+                !overallStatus.canSubmit
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : overallStatus.action === 'approve'
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : overallStatus.action === 'reject'
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
+                  : 'bg-purple-600 hover:bg-purple-700 text-white'
+              }`}
+            >
+              {submitting ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : overallStatus.action === 'approve' ? (
                 <Check className="w-5 h-5" />
-                Approve
-              </button>
-              <button
-                onClick={() => handleAction('modify')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors"
-              >
-                <Edit className="w-5 h-5" />
-                Modify
-              </button>
-              <button
-                onClick={() => handleAction('reject')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
-              >
+              ) : overallStatus.action === 'reject' ? (
                 <Ban className="w-5 h-5" />
-                Reject
-              </button>
-            </div>
-          ) : (
-            <div className="p-4 bg-gray-100 border border-gray-300 rounded-xl text-center">
-              <Lock className="w-8 h-8 mx-auto mb-2 text-gray-500" />
-              <p className="text-sm text-gray-600 font-medium">
-                Administrator approval required
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Contact your administrator to review this case
-              </p>
-            </div>
-          )}
+              ) : (
+                <Edit3 className="w-5 h-5" />
+              )}
+              {submitting
+                ? 'Submitting...'
+                : overallStatus.action === 'approve'
+                ? 'Approve Case'
+                : overallStatus.action === 'reject'
+                ? 'Reject Case'
+                : overallStatus.action === 'modify'
+                ? 'Submit Modifications'
+                : 'Review All Codes'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

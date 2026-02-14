@@ -9,6 +9,7 @@ export interface CodeResult {
   desc: string;
   comment: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface ICDDiagnosisWithPatient {
@@ -17,6 +18,7 @@ export interface ICDDiagnosisWithPatient {
   status: number;
   comment: string | null;
   created_at: string;
+  updated_at?: string;
   patient: {
     id: string;
     admission_number: string;
@@ -36,6 +38,7 @@ export interface ICDDiagnosisDetail {
   status: number;
   comment: string | null;
   created_at: string;
+  updated_at?: string;
   patient: {
     id: string;
     admission_number: string;
@@ -78,6 +81,47 @@ export interface ICDDiagnosisListQuery {
 
 export type ICDDiagnosisApiResponse = ICDDiagnosisListResponse | ICDDiagnosisListError;
 export type ICDDiagnosisDetailApiResponse = ICDDiagnosisDetailResponse | ICDDiagnosisDetailError;
+
+// Update ICD diagnosis types
+export interface UpdateICDDiagnosisRequest {
+  status?: number;
+  comment?: string;
+}
+
+export interface UpdateICDDiagnosisResponse {
+  success: boolean;
+  data: {
+    id: string;
+    status: number;
+    comment: string | null;
+    updated_at: string;
+  };
+}
+
+// Update code result types
+export interface UpdateCodeResultRequest {
+  code?: string;
+  desc?: string;
+}
+
+export interface UpdateCodeResultResponse {
+  success: boolean;
+  data: {
+    codeResult: {
+      id: string;
+      diag_id: string;
+      code: string;
+      desc: string;
+      comment: string | null;
+      updated_at: string;
+    };
+    icdDiagnosis: {
+      id: string;
+      status: number;
+      updated_at: string;
+    };
+  };
+}
 
 // Status labels for display
 export const STATUS_LABELS: Record<number, string> = {

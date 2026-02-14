@@ -33,9 +33,24 @@ export interface ICDDiagnosisDetail {
   code_results: CodeResult[];
 }
 
+export interface UpdateICDDiagnosisRequest {
+  status?: number;
+  comment?: string;
+}
+
 export interface ICDDiagnosisDetailResponse {
   success: boolean;
   data: ICDDiagnosisDetail;
+}
+
+export interface UpdateICDDiagnosisResponse {
+  success: boolean;
+  data: {
+    id: string;
+    status: number;
+    comment: string | null;
+    updated_at: string;
+  };
 }
 
 export interface ICDDiagnosisDetailError {
@@ -156,6 +171,86 @@ export async function GET(
     );
   } catch (error) {
     console.error("ICD Diagnosis detail error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error occurred" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/icd-diagnosis/[id]
+ * Updates icd_diagnosis status and/or comment
+ */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "ICD Diagnosis ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Parse request body
+    const body: UpdateICDDiagnosisRequest = await request.json();
+
+    if (body.status === undefined && body.comment === undefined) {
+      return NextResponse.json(
+        { error: "At least one field (status or comment) must be provided" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+    const now = new Date().toISOString();
+
+    // Build update data
+    const updateData: Record<string, any> = {
+      updated_at: now,
+    };
+    if (body.status !== undefined) {
+      updateData.status = body.status;
+    }
+    if (body.comment !== undefined) {
+      updateData.comment = body.comment;
+    }
+
+    // Update icd_diagnosis
+    const { data: updatedDiagnosis, error: updateError } = await supabase
+      .from("icd_diagnosis")
+      .update(updateData)
+      .eq("id", id)
+      .select("id, status, comment, updated_at")
+      .single();
+
+    if (updateError) {
+      console.error("Error updating icd_diagnosis:", updateError);
+      if (updateError.code === "PGRST116") {
+        return NextResponse.json(
+          { error: "ICD Diagnosis not found" },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Failed to update ICD diagnosis" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: updatedDiagnosis,
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("Update ICD Diagnosis error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }
