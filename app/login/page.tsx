@@ -1,39 +1,58 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '../contexts/AuthContext';
-import { toast } from 'sonner';
-import { Activity } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../contexts/AuthContext";
+import { toast } from "sonner";
+import { Activity } from "lucide-react";
 
 export const LoginPage: React.FC = () => {
   const router = useRouter();
   const { login, user, isLoading: authLoading } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
     if (user && !authLoading) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     }
   }, [user, authLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+
+    // Validation
+    if (!email.trim()) {
+      setError("Email is required");
+      return;
+    }
+    if (!password.trim()) {
+      setError("Password is required");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       const success = await login(email, password);
       if (success) {
-        toast.success('Login successful');
-        router.push('/dashboard');
+        toast.success("Login successful");
+        router.push("/dashboard");
       } else {
-        toast.error('Invalid credentials');
+        setError("Invalid email or password. Please check your credentials.");
+        toast.error("Invalid credentials");
       }
-    } catch (error) {
-      toast.error('An error occurred');
+    } catch (err) {
+      setError("An unexpected error occurred. Please try again.");
+      toast.error("An error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -58,31 +77,50 @@ export const LoginPage: React.FC = () => {
         {/* Login Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Error Message */}
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Email
               </label>
               <input
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError("");
+                }}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 placeholder-gray-400"
                 placeholder="Enter your email"
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Password
               </label>
               <input
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError("");
+                }}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 placeholder-gray-400"
                 placeholder="Enter your password"
                 required
               />
@@ -93,13 +131,15 @@ export const LoginPage: React.FC = () => {
               disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? "Signing in..." : "Sign In"}
             </button>
           </form>
 
           {/* Demo Credentials */}
           <div className="mt-8 pt-6 border-t border-gray-100">
-            <p className="text-xs font-medium text-gray-500 mb-3">Demo Credentials:</p>
+            <p className="text-xs font-medium text-gray-500 mb-3">
+              Demo Credentials:
+            </p>
             <div className="space-y-2 text-xs text-gray-600">
               <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
                 <span>Admin:</span>
@@ -111,7 +151,9 @@ export const LoginPage: React.FC = () => {
               </div>
               <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
                 <span>Auditor:</span>
-                <span className="font-mono">auditor1@example.com / auditor123</span>
+                <span className="font-mono">
+                  auditor1@example.com / auditor123
+                </span>
               </div>
             </div>
           </div>

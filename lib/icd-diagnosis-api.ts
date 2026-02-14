@@ -2,6 +2,8 @@ import type {
   ICDDiagnosisListResponse,
   ICDDiagnosisDetailResponse,
   ICDDiagnosisListQuery,
+  UpdateICDDiagnosisRequest,
+  UpdateICDDiagnosisResponse,
 } from "@/types/icd-diagnosis";
 
 export const icdDiagnosisApi = {
@@ -86,5 +88,22 @@ export const icdDiagnosisApi = {
    */
   getRejected: async (limit?: number, offset?: number): Promise<ICDDiagnosisListResponse> => {
     return icdDiagnosisApi.getList({ status: 3, limit, offset });
+  },
+
+  /**
+   * Update an ICD diagnosis (status, comment, and/or code results)
+   * @param id - ICD Diagnosis ID
+   * @param data - Update data
+   */
+  update: async (id: string, data: UpdateICDDiagnosisRequest): Promise<UpdateICDDiagnosisResponse> => {
+    const response = await fetch(`/api/icd-diagnosis/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+
+    return response.json();
   },
 };

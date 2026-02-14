@@ -3,7 +3,7 @@ import path from "path";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import {PDFParse} from "pdf-parse";
 
-const REFERENCE_DIR = path.join(process.cwd(), "src", "lib", "ICD");
+const REFERENCE_DIR = path.join(process.cwd(), "lib", "ICD");
 const CHUNK_SIZE = 1500; // characters per chunk
 const CHUNK_OVERLAP = 200; // overlap between chunks for context continuity
 

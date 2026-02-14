@@ -94,3 +94,23 @@ export const STATUS_COLORS: Record<number, { bg: string; text: string; border: s
   2: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200" },
   3: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
 };
+
+// Update request types
+export interface UpdateCodeResult {
+  id?: string;
+  code: string;
+  desc?: string;
+  comment?: string;
+}
+
+export interface UpdateICDDiagnosisRequest {
+  status?: number;
+  comment?: string;
+  code_results?: UpdateCodeResult[];
+}
+
+export interface UpdateICDDiagnosisResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}

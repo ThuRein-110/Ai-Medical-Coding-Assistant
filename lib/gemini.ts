@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { searchReferenceDocs } from "./referenceDocs";
+import { getICDContextForAI, lookupCode, searchByDescription, isValidCode } from "./icd10-lookup";
+import { AISettings, DEFAULT_AI_SETTINGS } from "@/types/ai-settings";
 
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || "";
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
@@ -118,8 +120,10 @@ function looksLikeCode(input: string): boolean {
 // --- Main lookup function ---
 export async function lookupMedicalCode(
   input: string,
-  forceMode?: "code_to_description" | "description_to_code"
+  forceMode?: "code_to_description" | "description_to_code",
+  settings: Partial<AISettings> = {}
 ): Promise<LookupResult> {
+  const aiSettings = { ...DEFAULT_AI_SETTINGS, ...settings };
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY environment variable is not set.");
   }
@@ -127,19 +131,46 @@ export async function lookupMedicalCode(
   const mode = forceMode || (looksLikeCode(input) ? "code_to_description" : "description_to_code");
   const systemPrompt = mode === "code_to_description" ? CODE_TO_DESC_PROMPT : DESC_TO_CODE_PROMPT;
 
+  // For code lookup, check local database first
+  if (mode === "code_to_description") {
+    const dbEntry = await lookupCode(input);
+    if (dbEntry) {
+      return {
+        mode: "code_to_description",
+        input_code: input,
+        code_system: "ICD-10-CM",
+        official_description: dbEntry.desc,
+        plain_english: dbEntry.desc,
+        category: input.substring(0, 3),
+        chapter: "",
+        parent_code: "",
+        related_codes: [],
+        notes: "Retrieved from local ICD-10 database",
+        valid: true,
+      } as CodeToDescResult;
+    }
+  }
+
+  // For description to code, get relevant codes from database
+  let icdContext = "";
+  if (mode === "description_to_code") {
+    icdContext = await getICDContextForAI(input, aiSettings.maxICDContextCodes);
+  }
+
   // Search reference docs for relevant context
   const refContext = await searchReferenceDocs(input, 5, 6000);
   const refSection = refContext
-    ? `
-
-REFERENCE DOCUMENTS (use these as authoritative source when relevant):
-${refContext}`
+    ? `\n\nREFERENCE DOCUMENTS:\n${refContext}`
+    : "";
+  
+  const icdSection = icdContext
+    ? `\n\nICD-10-CM DATABASE (use these verified codes):\n${icdContext}`
     : "";
 
   const userPrompt =
     mode === "code_to_description"
       ? `Look up this medical code: "${input}"${refSection}\n\nReturn ONLY the JSON.`
-      : `Find the medical code(s) for: "${input}"${refSection}\n\nReturn ONLY the JSON.`;
+      : `Find the medical code(s) for: "${input}"${icdSection}${refSection}\n\nIMPORTANT: Prioritize codes from the ICD-10-CM DATABASE above.\n\nReturn ONLY the JSON.`;
 
   const client = new OpenAI({
     baseURL: NVIDIA_BASE_URL,
@@ -153,9 +184,9 @@ ${refContext}`
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.6,
-    top_p: 0.9,
-    max_tokens: 4096,
+    temperature: aiSettings.temperature,
+    top_p: aiSettings.topP,
+    max_tokens: aiSettings.maxTokens,
     stream: true,
   });
 
@@ -180,20 +211,20 @@ ${refContext}`
 }
 
 // --- Batch: Convert multiple diagnoses/procedures to codes in one call ---
-const BATCH_PROMPT = `You are an expert AI Medical Coding Assistant.
+const BATCH_PROMPT = `You are an expert AI Medical Coding Assistant with access to the official ICD-10-CM database.
 
 TASK: Given a JSON array of medical items (each with a row number, AN/admission number, and diagnosis or procedure text), return the best medical code for EVERY SINGLE item in the array.
 
 CRITICAL RULES:
-- You MUST return exactly one result object for EVERY input item. Do NOT skip any rows.
-- The number of objects in your output array MUST equal the number of items in the input array.
-- For diagnoses/conditions: Return ICD-10-CM codes.
-- For procedures/surgeries: Return ICD-10-PCS or CPT codes as appropriate.
-- Auto-detect whether each item is a diagnosis or a procedure and code accordingly.
-- For each item, return the single best-match code plus confidence.
-- Do NOT upcode.
-- If an item is too vague or invalid, set icd_code to "" and explain in notes. Still include it in the output.
-- Output ONLY a valid JSON array, no text outside it. No markdown fences.
+1. You MUST return exactly one result object for EVERY input item. Do NOT skip any rows.
+2. The number of objects in your output array MUST equal the number of items in the input array.
+3. ACCURACY IS PARAMOUNT: Use ONLY codes that appear in the ICD-10-CM DATABASE PROVIDED below.
+4. For diagnoses/conditions: Return ICD-10-CM codes (format: letter + 2-7 alphanumeric characters, e.g., J18.9, E11.65).
+5. For procedures/surgeries: Return ICD-10-PCS or CPT codes as appropriate.
+6. If the exact code is in the provided ICD-10 database, use it exactly as shown.
+7. Do NOT invent codes. If unsure, pick the closest match from the database and set lower confidence.
+8. If an item is too vague, set icd_code to "" and explain in notes. Still include it in the output.
+9. Output ONLY a valid JSON array, no text outside it. No markdown fences.
 
 OUTPUT FORMAT (STRICT – JSON array, one entry per input):
 [
@@ -202,7 +233,7 @@ OUTPUT FORMAT (STRICT – JSON array, one entry per input):
     "an": "",
     "input_diagnosis": "",
     "icd_code": "",
-    "code_system": "",
+    "code_system": "ICD-10-CM",
     "official_description": "",
     "confidence": 0.00,
     "notes": ""
@@ -228,8 +259,11 @@ export interface DiagnosisInput {
 }
 
 export async function batchDiagnosisToCode(
-  diagnoses: DiagnosisInput[]
+  diagnoses: DiagnosisInput[],
+  settings: Partial<AISettings> = {}
 ): Promise<BatchCodeResult[]> {
+  const aiSettings = { ...DEFAULT_AI_SETTINGS, ...settings };
+  
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY environment variable is not set.");
   }
@@ -239,13 +273,13 @@ export async function batchDiagnosisToCode(
     apiKey: NVIDIA_API_KEY,
   });
 
-  // Smaller chunks = more reliable complete responses
-  const CHUNK_SIZE = 10;
+  // Use chunk size from settings
+  const CHUNK_SIZE = aiSettings.chunkSize;
   const allResults: BatchCodeResult[] = [];
 
   for (let i = 0; i < diagnoses.length; i += CHUNK_SIZE) {
     const chunk = diagnoses.slice(i, i + CHUNK_SIZE);
-    const chunkResults = await processChunk(client, chunk);
+    const chunkResults = await processChunk(client, chunk, aiSettings);
 
     // Check for missing rows and retry them individually
     const returnedRows = new Set(chunkResults.map((r) => r.row));
@@ -255,7 +289,7 @@ export async function batchDiagnosisToCode(
 
     // Retry missing rows one-by-one
     for (const missing of missingItems) {
-      const singleResult = await processChunk(client, [missing]);
+      const singleResult = await processChunk(client, [missing], aiSettings);
       if (singleResult.length > 0) {
         allResults.push(...singleResult);
       } else {
@@ -283,7 +317,8 @@ export async function batchDiagnosisToCode(
 
 async function processChunk(
   client: OpenAI,
-  chunk: DiagnosisInput[]
+  chunk: DiagnosisInput[],
+  aiSettings: AISettings
 ): Promise<BatchCodeResult[]> {
   const inputPayload = chunk.map((d) => ({
     row: d.row,
@@ -291,18 +326,39 @@ async function processChunk(
     diagnosis: d.diagnosis,
   }));
 
-  // Search reference docs for context relevant to this batch
-  const batchQuery = chunk.map((d) => d.diagnosis).join(" ");
-  const refContext = await searchReferenceDocs(batchQuery, 5, 4000);
-  const refSection = refContext
-    ? `
+  // Get ICD-10 codes from local database for each diagnosis (parallel)
+  const icdContextPromises = chunk.map(d => getICDContextForAI(d.diagnosis, aiSettings.maxICDContextCodes));
+  const icdContexts = await Promise.all(icdContextPromises);
+  
+  // Combine and deduplicate ICD-10 context
+  const allICDLines = new Set<string>();
+  icdContexts.forEach(ctx => {
+    if (ctx) {
+      ctx.split('\n').slice(1).forEach(line => {
+        if (line.trim()) allICDLines.add(line.trim());
+      });
+    }
+  });
+  
+  const icdSection = allICDLines.size > 0
+    ? `\n\nICD-10-CM DATABASE (use these codes - they are verified accurate):\n${Array.from(allICDLines).slice(0, 50).join('\n')}`
+    : '';
 
-REFERENCE DOCUMENTS (use these as authoritative source when relevant):
-${refContext}
-`
+  // Search reference docs for additional context
+  const batchQuery = chunk.map((d) => d.diagnosis).join(" ");
+  const refContext = await searchReferenceDocs(batchQuery, 3, 2000);
+  const refSection = refContext
+    ? `\n\nADDITIONAL REFERENCE:\n${refContext}`
     : "";
 
-  const userPrompt = `Convert these ${chunk.length} diagnoses/procedures to medical codes. You MUST return exactly ${chunk.length} results.${refSection}\n\n${JSON.stringify(inputPayload, null, 2)}\n\nReturn ONLY the JSON array with ${chunk.length} objects.`;
+  const userPrompt = `Convert these ${chunk.length} diagnoses/procedures to medical codes. You MUST return exactly ${chunk.length} results.
+
+IMPORTANT: Prioritize codes from the ICD-10-CM DATABASE below. Only use other codes if no match exists in the database.${icdSection}${refSection}
+
+INPUT DATA:
+${JSON.stringify(inputPayload, null, 2)}
+
+Return ONLY the JSON array with ${chunk.length} objects.`;
 
   try {
     const completion = await client.chat.completions.create({
@@ -311,9 +367,9 @@ ${refContext}
         { role: "system", content: BATCH_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.6,
-      top_p: 0.9,
-      max_tokens: 16384,
+      temperature: aiSettings.temperature,
+      top_p: aiSettings.topP,
+      max_tokens: aiSettings.maxTokens,
       stream: true,
     });
 
@@ -328,7 +384,49 @@ ${refContext}
     const jsonStr = (jsonMatch[1] || text).trim();
 
     const parsed = JSON.parse(jsonStr) as BatchCodeResult[];
-    return parsed;
+    
+    // Post-process: validate codes against local database
+    const validated = await Promise.all(parsed.map(async (result) => {
+      if (!result.icd_code || result.icd_code.trim() === '') {
+        return result;
+      }
+      
+      // Check if the code exists in our database
+      const dbEntry = await lookupCode(result.icd_code);
+      
+      if (dbEntry) {
+        // Code is valid - use the official description from database
+        return {
+          ...result,
+          official_description: dbEntry.desc,
+          notes: result.notes ? `${result.notes} [Verified in ICD-10 database]` : 'Verified in ICD-10 database',
+        };
+      } else {
+        // Code not found - try to find a better match
+        const suggestions = await searchByDescription(result.input_diagnosis, 3);
+        
+        if (suggestions.length > 0) {
+          const bestMatch = suggestions[0];
+          // If confidence was high but code invalid, suggest the correct one
+          return {
+            ...result,
+            icd_code: bestMatch.code,
+            official_description: bestMatch.description,
+            confidence: Math.min(result.confidence, 0.75), // Cap confidence since we auto-corrected
+            notes: `AI suggested "${result.icd_code}" but DB lookup found "${bestMatch.code}" as better match`,
+          };
+        } else {
+          // No match found in database
+          return {
+            ...result,
+            notes: `Code "${result.icd_code}" not found in ICD-10 database. May need manual review.`,
+            confidence: Math.min(result.confidence, 0.5),
+          };
+        }
+      }
+    }));
+    
+    return validated;
   } catch {
     // If parsing fails for the chunk, add error entries
     return chunk.map((d) => ({

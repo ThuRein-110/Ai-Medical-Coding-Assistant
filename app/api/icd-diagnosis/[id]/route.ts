@@ -162,3 +162,151 @@ export async function GET(
     );
   }
 }
+
+/**
+ * PUT /api/icd-diagnosis/[id]
+ * Update ICD diagnosis status, comment, and code results
+ */
+export interface UpdateCodeResult {
+  id?: string; // If provided, update existing; if not, create new
+  code: string;
+  desc?: string;
+  comment?: string;
+}
+
+export interface UpdateICDDiagnosisRequest {
+  status?: number; // 0=pending, 1=approved, 2=modified, 3=rejected
+  comment?: string;
+  code_results?: UpdateCodeResult[];
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "ICD Diagnosis ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const body: UpdateICDDiagnosisRequest = await request.json();
+    const supabase = await createClient();
+
+    // Verify the diagnosis exists
+    const { data: existingDiagnosis, error: fetchError } = await supabase
+      .from("icd_diagnosis")
+      .select("id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existingDiagnosis) {
+      return NextResponse.json(
+        { error: "ICD Diagnosis not found" },
+        { status: 404 }
+      );
+    }
+
+    // Update icd_diagnosis record
+    const updateData: { status?: number; comment?: string } = {};
+    if (body.status !== undefined) {
+      updateData.status = body.status;
+    }
+    if (body.comment !== undefined) {
+      updateData.comment = body.comment;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      const { error: updateError } = await supabase
+        .from("icd_diagnosis")
+        .update(updateData)
+        .eq("id", id);
+
+      if (updateError) {
+        console.error("Error updating ICD diagnosis:", updateError);
+        return NextResponse.json(
+          { error: "Failed to update ICD diagnosis" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Handle code_results updates
+    if (body.code_results !== undefined) {
+      // Get existing code results
+      const { data: existingCodes } = await supabase
+        .from("code_results")
+        .select("id")
+        .eq("diag_id", id);
+
+      const existingIds = new Set((existingCodes || []).map((c) => c.id));
+      const newIds = new Set(
+        body.code_results.filter((c) => c.id).map((c) => c.id)
+      );
+
+      // Delete codes that are no longer present
+      const toDelete = [...existingIds].filter((existingId) => !newIds.has(existingId));
+      if (toDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from("code_results")
+          .delete()
+          .in("id", toDelete);
+
+        if (deleteError) {
+          console.error("Error deleting code results:", deleteError);
+        }
+      }
+
+      // Upsert code results
+      for (const codeResult of body.code_results) {
+        if (codeResult.id && existingIds.has(codeResult.id)) {
+          // Update existing
+          const { error: upsertError } = await supabase
+            .from("code_results")
+            .update({
+              code: codeResult.code,
+              desc: codeResult.desc || "",
+              comment: codeResult.comment || null,
+            })
+            .eq("id", codeResult.id);
+
+          if (upsertError) {
+            console.error("Error updating code result:", upsertError);
+          }
+        } else {
+          // Insert new
+          const { error: insertError } = await supabase
+            .from("code_results")
+            .insert({
+              diag_id: id,
+              code: codeResult.code,
+              desc: codeResult.desc || "",
+              comment: codeResult.comment || null,
+            });
+
+          if (insertError) {
+            console.error("Error inserting code result:", insertError);
+          }
+        }
+      }
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "ICD Diagnosis updated successfully",
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("ICD Diagnosis update error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error occurred" },
+      { status: 500 }
+    );
+  }
+}

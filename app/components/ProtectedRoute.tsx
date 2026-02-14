@@ -1,20 +1,32 @@
-'use client'
+"use client";
 
-import { ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from '@/app/contexts/AuthContext'
+import { ReactNode, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/app/contexts/AuthContext";
 
 interface ProtectedRouteProps {
-  children: ReactNode
-  requiredRoles?: string[]
+  children: ReactNode;
+  requiredRoles?: string[];
 }
 
 export function ProtectedRoute({
   children,
   requiredRoles,
 }: ProtectedRouteProps) {
-  const router = useRouter()
-  const { user, isLoading } = useAuth()
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/login");
+    } else if (
+      !isLoading &&
+      requiredRoles &&
+      !requiredRoles.includes(user?.user_metadata?.role || "")
+    ) {
+      router.push("/dashboard");
+    }
+  }, [isLoading, user, requiredRoles, router]);
 
   if (isLoading) {
     return (
@@ -26,18 +38,16 @@ export function ProtectedRoute({
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
-    )
+    );
   }
 
-  if (!user) {
-    router.push('/login')
-    return null
+  if (
+    !user ||
+    (requiredRoles && !requiredRoles.includes(user.user_metadata?.role || ""))
+  ) {
+    // Prevent rendering children while redirecting
+    return null;
   }
 
-  if (requiredRoles && !requiredRoles.includes(user.user_metadata?.role || '')) {
-    router.push('/dashboard')
-    return null
-  }
-
-  return <>{children}</>
+  return <>{children}</>;
 }

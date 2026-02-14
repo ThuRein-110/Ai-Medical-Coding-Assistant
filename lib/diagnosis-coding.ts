@@ -1,4 +1,5 @@
 import { batchDiagnosisToCode, type BatchCodeResult, type DiagnosisInput } from "./gemini";
+import { AISettings, DEFAULT_AI_SETTINGS } from "@/types/ai-settings";
 
 export type { BatchCodeResult };
 import { findDiagnosisColumns } from "./parseExcel";
@@ -49,12 +50,15 @@ function findANColumnValue(record: Record<string, any>): string {
  * 
  * @param allRecords - Array of record objects from Excel
  * @param headers - Array of column header names
+ * @param settings - Optional AI settings to customize processing
  * @returns ProcessDiagnosesResult with coding results
  */
 export async function processDiagnosisCoding(
   allRecords: Record<string, any>[],
-  headers: string[]
+  headers: string[],
+  settings: Partial<AISettings> = {}
 ): Promise<ProcessDiagnosesResult> {
+  const aiSettings = { ...DEFAULT_AI_SETTINGS, ...settings };
   try {
     if (allRecords.length === 0) {
       return {
@@ -119,16 +123,23 @@ export async function processDiagnosisCoding(
       };
     }
 
-    // Call AI batch conversion
+    // Call AI batch conversion with settings
     const results = await batchDiagnosisToCode(
-      diagnoses.map((d) => ({ row: d.row, an: d.an, diagnosis: d.diagnosis }))
+      diagnoses.map((d) => ({ row: d.row, an: d.an, diagnosis: d.diagnosis })),
+      aiSettings
     );
 
-    // Attach column name to each result
-    const resultsWithColumns: BatchCodeResult[] = results.map((r, i) => ({
-      ...r,
-      column: diagnoses[i]?.column || "unknown",
-    }));
+    // Filter results by confidence threshold and attach column name
+    const resultsWithColumns: BatchCodeResult[] = results.map((r, i) => {
+      const needsReview = r.confidence < aiSettings.confidenceThreshold;
+      return {
+        ...r,
+        column: diagnoses[i]?.column || "unknown",
+        notes: needsReview 
+          ? `${r.notes || ''} [Below confidence threshold: ${(r.confidence * 100).toFixed(0)}% < ${(aiSettings.confidenceThreshold * 100).toFixed(0)}%]`.trim()
+          : r.notes,
+      };
+    });
 
     return {
       success: true,
