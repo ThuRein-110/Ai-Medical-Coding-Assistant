@@ -3,6 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+export interface CodeResult {
+  id: string;
+  code: string;
+  desc: string;
+}
+
 export interface AuditTrailItem {
   id: string;
   patient_id: string;
@@ -18,6 +24,7 @@ export interface AuditTrailItem {
     chief_complaint: string;
     pre_diagnosis: string;
   };
+  code_results: CodeResult[];
 }
 
 export interface AuditTrailResponse {
@@ -39,7 +46,7 @@ export interface AuditTrailQuery {
  * GET /api/audit-trail
  * Returns icd_diagnosis records with status other than pending (0),
  * sorted by updated_at (most recent first),
- * including patient info
+ * including patient info and code_results
  * 
  * Query params:
  *   - limit: Number of records to return (default: 50, max: 100)
@@ -94,6 +101,36 @@ export async function GET(request: Request): Promise<NextResponse> {
       );
     }
 
+    // Fetch code_results for each diagnosis
+    const diagnosisIds = (data || []).map((item: any) => item.id);
+    
+    let codeResultsData: any[] = [];
+    if (diagnosisIds.length > 0) {
+      const { data: codes, error: codesError } = await supabase
+        .from("code_results")
+        .select("id, diag_id, code, desc")
+        .in("diag_id", diagnosisIds);
+      
+      if (codesError) {
+        console.error("Error fetching code results:", codesError);
+      } else {
+        codeResultsData = codes || [];
+      }
+    }
+
+    // Group code_results by diag_id
+    const codeResultsByDiagId = new Map<string, CodeResult[]>();
+    for (const code of codeResultsData) {
+      if (!codeResultsByDiagId.has(code.diag_id)) {
+        codeResultsByDiagId.set(code.diag_id, []);
+      }
+      codeResultsByDiagId.get(code.diag_id)!.push({
+        id: code.id,
+        code: code.code,
+        desc: code.desc,
+      });
+    }
+
     // Transform data to match interface
     const transformedData: AuditTrailItem[] = (data || []).map((item: any) => ({
       id: item.id,
@@ -110,6 +147,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         chief_complaint: item.patient.chief_complaint,
         pre_diagnosis: item.patient.pre_diagnosis,
       },
+      code_results: codeResultsByDiagId.get(item.id) || [],
     }));
 
     return NextResponse.json(

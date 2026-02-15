@@ -2,6 +2,12 @@
  * Audit Trail types
  */
 
+export interface CodeResult {
+  id: string;
+  code: string;
+  desc: string;
+}
+
 export interface AuditTrailItem {
   id: string;
   patient_id: string;
@@ -17,6 +23,7 @@ export interface AuditTrailItem {
     chief_complaint: string;
     pre_diagnosis: string;
   };
+  code_results: CodeResult[];
 }
 
 export interface AuditTrailResponse {

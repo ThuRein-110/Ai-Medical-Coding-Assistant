@@ -66,10 +66,11 @@ export default function AuditTrailPage() {
 
   const handleExport = () => {
     // Create CSV content
-    const headers = ['Case ID', 'Admission Number', 'Status', 'Updated At', 'Comment'];
+    const headers = ['Case ID', 'Admission Number', 'AI Codes', 'Status', 'Updated At', 'Comment'];
     const rows = filteredLogs.map((log) => [
       log.id,
       log.patient.admission_number,
+      log.code_results.map((c) => c.code).join('; '),
       STATUS_LABELS[log.status] || 'Unknown',
       new Date(log.updated_at).toLocaleString(),
       log.comment || '',
@@ -259,6 +260,9 @@ export default function AuditTrailPage() {
                       Admission Number
                     </th>
                     <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                      AI Codes
+                    </th>
+                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
                       Patient Info
                     </th>
                     <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
@@ -288,6 +292,22 @@ export default function AuditTrailPage() {
                         >
                           {log.patient.admission_number}
                         </Link>
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex flex-wrap gap-1">
+                          {log.code_results.length > 0 ? (
+                            log.code_results.map((code, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs font-mono rounded"
+                              >
+                                {code.code}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-400 text-sm">-</span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-6">
                         <div className="text-sm text-gray-900">
