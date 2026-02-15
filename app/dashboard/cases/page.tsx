@@ -1,16 +1,29 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { icdDiagnosisApi } from '@/lib/icd-diagnosis-api';
-import { STATUS_LABELS, STATUS_COLORS, type ICDDiagnosisWithPatient } from '@/types/icd-diagnosis';
-import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { icdDiagnosisApi } from "@/lib/icd-diagnosis-api";
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  type ICDDiagnosisWithPatient,
+} from "@/types/icd-diagnosis";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 
 const ITEMS_PER_PAGE = 10;
 
 // Map status number to string for URL/param compatibility
-const STATUS_MAP: Record<string, number | 'all'> = {
-  all: 'all',
+const STATUS_MAP: Record<string, number | "all"> = {
+  all: "all",
   pending: 0,
   approved: 1,
   modified: 2,
@@ -18,24 +31,31 @@ const STATUS_MAP: Record<string, number | 'all'> = {
 };
 
 const STATUS_REVERSE_MAP: Record<number, string> = {
-  0: 'pending',
-  1: 'approved',
-  2: 'modified',
-  3: 'rejected',
+  0: "pending",
+  1: "approved",
+  2: "modified",
+  3: "rejected",
 };
 
 export default function CaseListPage() {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get("status") || "all";
   
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus);
+
+  // Sorting states
+  const [sortField, setSortField] = useState<string>("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
   // API data states
   const [diagnoses, setDiagnoses] = useState<ICDDiagnosisWithPatient[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch data from API
+  // Fetch data from API with search, filter, and sorting
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -46,37 +66,51 @@ export default function CaseListPage() {
         const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
         const response = await icdDiagnosisApi.getList({
-          status: statusValue === 'all' ? undefined : statusValue,
+          status: statusValue === "all" ? undefined : statusValue,
           limit: ITEMS_PER_PAGE,
           offset,
+          search: searchTerm.trim() || undefined,
+          sortField: sortField,
+          sortOrder: sortOrder,
         });
 
         if (response.success) {
           setDiagnoses(response.data);
           setTotalCount(response.count);
         } else {
-          setError('Failed to fetch cases');
+          setError("Failed to fetch cases");
         }
       } catch (err) {
-        console.error('Error fetching cases:', err);
-        setError('Error loading cases');
+        console.error("Error fetching cases:", err);
+        setError("Error loading cases");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, [currentPage, statusFilter]);
+    // Debounce search to avoid too many API calls
+    const timeoutId = setTimeout(fetchData, 300);
+    return () => clearTimeout(timeoutId);
+  }, [currentPage, statusFilter, searchTerm, sortField, sortOrder]);
 
-  // Filter cases by search term (client-side)
-  const filteredDiagnoses = diagnoses.filter((item) => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch =
-      String(item.patient.admission_number || '').toLowerCase().includes(searchLower) ||
-      String(item.patient.chief_complaint || '').toLowerCase().includes(searchLower) ||
-      String(item.patient.pre_diagnosis || '').toLowerCase().includes(searchLower);
-    return matchesSearch;
-  });
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const getSortIcon = (field: string) => {
+    if (sortField !== field)
+      return <ArrowUpDown className="w-4 h-4 ml-1 opacity-40" />;
+    return sortOrder === "asc" ? (
+      <ArrowUp className="w-4 h-4 ml-1" />
+    ) : (
+      <ArrowDown className="w-4 h-4 ml-1" />
+    );
+  };
 
   // Pagination
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
@@ -85,7 +119,7 @@ export default function CaseListPage() {
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const getStatusBadge = (status: number) => {
@@ -94,12 +128,12 @@ export default function CaseListPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -108,7 +142,9 @@ export default function CaseListPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Case List</h1>
-        <p className="text-gray-600">Browse and manage all medical coding cases</p>
+        <p className="text-gray-600">
+          Browse and manage all medical coding cases
+        </p>
       </div>
 
       {/* Filters */}
@@ -148,8 +184,8 @@ export default function CaseListPage() {
 
         {/* Results Count */}
         <div className="mt-4 text-sm text-gray-600">
-          Showing {totalCount > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, totalCount)} of{' '}
-          {totalCount} cases
+          Showing {totalCount > 0 ? startIndex + 1 : 0} -{" "}
+          {Math.min(endIndex, totalCount)} of {totalCount} cases
         </div>
       </div>
 
@@ -178,68 +214,114 @@ export default function CaseListPage() {
       {!loading && !error && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[900px]">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Admission Number
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[150px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("admission_number")}
+                  >
+                    <div className="flex items-center">
+                      Admission Number
+                      {getSortIcon("admission_number")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Age
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[80px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("age")}
+                  >
+                    <div className="flex items-center">
+                      Age
+                      {getSortIcon("age")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Sex
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[80px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("sex")}
+                  >
+                    <div className="flex items-center">
+                      Sex
+                      {getSortIcon("sex")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Chief Complaint
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[180px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("chief_complaint")}
+                  >
+                    <div className="flex items-center">
+                      Chief Complaint
+                      {getSortIcon("chief_complaint")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Pre-diagnosis
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[180px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("pre_diagnosis")}
+                  >
+                    <div className="flex items-center">
+                      Pre-diagnosis
+                      {getSortIcon("pre_diagnosis")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Status
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[100px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center">
+                      Status
+                      {getSortIcon("status")}
+                    </div>
                   </th>
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                    Created
+                  <th
+                    className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[150px] cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => handleSort("created_at")}
+                  >
+                    <div className="flex items-center">
+                      Created
+                      {getSortIcon("created_at")}
+                    </div>
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredDiagnoses.map((item) => (
+                {diagnoses.map((item) => (
                   <tr
                     key={item.id}
                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                   >
-                    <td className="py-4 px-6">
+                    <td className="py-4 px-6 min-w-[150px]">
                       <Link
                         href={`/dashboard/cases/${item.id}`}
                         className="text-blue-600 hover:text-blue-700 font-medium"
                       >
-                        {item.patient.admission_number}
+                        {item.patient?.admission_number || "-"}
                       </Link>
                     </td>
-                    <td className="py-4 px-6 text-gray-900">
-                      {item.patient.age || '-'}
+                    <td className="py-4 px-6 text-gray-900 min-w-[80px]">
+                      {item.patient?.age || "-"}
                     </td>
-                    <td className="py-4 px-6 text-gray-900">
-                      {item.patient.sex || '-'}
+                    <td className="py-4 px-6 text-gray-900 min-w-[80px]">
+                      {item.patient?.sex || "-"}
                     </td>
-                    <td className="py-4 px-6 text-gray-900 max-w-xs truncate">
-                      {item.patient.chief_complaint || '-'}
-                    </td>
-                    <td className="py-4 px-6 text-gray-900 max-w-xs truncate">
-                      {item.patient.pre_diagnosis || '-'}
-                    </td>
-                    <td className="py-4 px-6">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadge(
-                          item.status
-                        )}`}
-                      >
-                        {STATUS_LABELS[item.status] || 'Unknown'}
+                    <td className="py-4 px-6 text-gray-900 min-w-[180px]">
+                      <span className="block max-w-[180px] truncate">
+                        {item.patient?.chief_complaint || "-"}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
+                    <td className="py-4 px-6 text-gray-900 min-w-[180px]">
+                      <span className="block max-w-[180px] truncate">
+                        {item.patient?.pre_diagnosis || "-"}
+                      </span>
+                    </td>
+                    <td className="py-4 px-6 min-w-[100px]">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadge(
+                          item.status,
+                        )}`}
+                      >
+                        {STATUS_LABELS[item.status] || "Unknown"}
+                      </span>
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600 min-w-[150px]">
                       {formatDate(item.created_at)}
                     </td>
                   </tr>
@@ -248,7 +330,7 @@ export default function CaseListPage() {
             </table>
           </div>
 
-          {filteredDiagnoses.length === 0 && (
+          {diagnoses.length === 0 && (
             <div className="text-center py-12 text-gray-500">
               <p>No cases found matching your filters</p>
             </div>
@@ -275,8 +357,8 @@ export default function CaseListPage() {
                 onClick={() => handlePageChange(page)}
                 className={`w-10 h-10 rounded-xl font-medium transition-colors ${
                   currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                    ? "bg-blue-600 text-white"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {page}

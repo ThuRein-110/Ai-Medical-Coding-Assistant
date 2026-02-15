@@ -1,24 +1,26 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { mockCases } from '../utils/mockData';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState } from "react";
+import Link from "next/link";
+import { mockCases } from "../utils/mockData";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 
 const ITEMS_PER_PAGE = 10;
 
 export default function CaseListPage() {
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // Filter cases
   const filteredCases = mockCases.filter((caseItem) => {
     const matchesSearch =
       caseItem.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caseItem.primaryDiagnosis.toLowerCase().includes(searchTerm.toLowerCase());
+      caseItem.primaryDiagnosis
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
     const matchesStatus =
-      statusFilter === 'all' || caseItem.status === statusFilter;
+      statusFilter === "all" || caseItem.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -30,32 +32,32 @@ export default function CaseListPage() {
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const getStatusBadge = (status: string) => {
     const styles = {
-      pending: 'bg-yellow-100 text-yellow-700',
-      approved: 'bg-green-100 text-green-700',
-      modified: 'bg-purple-100 text-purple-700',
-      rejected: 'bg-red-100 text-red-700',
+      pending: "bg-yellow-100 text-yellow-700",
+      approved: "bg-green-100 text-green-700",
+      modified: "bg-purple-100 text-purple-700",
+      rejected: "bg-red-100 text-red-700",
     };
-    return styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-700';
+    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-700";
   };
 
   const getConfidenceBadge = (confidence: number) => {
-    if (confidence >= 85) return 'bg-green-100 text-green-700';
-    if (confidence >= 70) return 'bg-yellow-100 text-yellow-700';
-    return 'bg-red-100 text-red-700';
+    if (confidence >= 85) return "bg-green-100 text-green-700";
+    if (confidence >= 70) return "bg-yellow-100 text-yellow-700";
+    return "bg-red-100 text-red-700";
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -64,7 +66,9 @@ export default function CaseListPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Case List</h1>
-        <p className="text-gray-600">Browse and manage all medical coding cases</p>
+        <p className="text-gray-600">
+          Browse and manage all medical coding cases
+        </p>
       </div>
 
       {/* Filters */}
@@ -72,7 +76,7 @@ export default function CaseListPage() {
         <div className="flex flex-col md:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-800" />
             <input
               type="text"
               placeholder="Search by case ID or diagnosis..."
@@ -81,7 +85,7 @@ export default function CaseListPage() {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 border  text-gray-800 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
 
@@ -104,8 +108,8 @@ export default function CaseListPage() {
 
         {/* Results Count */}
         <div className="mt-4 text-sm text-gray-600">
-          Showing {startIndex + 1} - {Math.min(endIndex, filteredCases.length)} of{' '}
-          {filteredCases.length} cases
+          Showing {startIndex + 1} - {Math.min(endIndex, filteredCases.length)}{" "}
+          of {filteredCases.length} cases
         </div>
       </div>
 
@@ -164,7 +168,7 @@ export default function CaseListPage() {
                   <td className="py-4 px-6">
                     <span
                       className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getConfidenceBadge(
-                        caseItem.overallConfidence
+                        caseItem.overallConfidence,
                       )}`}
                     >
                       {caseItem.overallConfidence}%
@@ -173,7 +177,7 @@ export default function CaseListPage() {
                   <td className="py-4 px-6">
                     <span
                       className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadge(
-                        caseItem.status
+                        caseItem.status,
                       )}`}
                     >
                       {caseItem.status}
@@ -214,8 +218,8 @@ export default function CaseListPage() {
                 onClick={() => handlePageChange(page)}
                 className={`w-10 h-10 rounded-xl font-medium transition-colors ${
                   currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                    ? "bg-blue-600 text-white"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {page}

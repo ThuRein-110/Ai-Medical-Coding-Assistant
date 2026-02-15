@@ -42,14 +42,14 @@ const navItems: NavItem[] = [
     icon: <FileText className="w-5 h-5" />,
   },
   {
-    name: "AI Settings",
-    path: "/dashboard/settings",
-    icon: <Settings className="w-5 h-5" />,
-  },
-  {
     name: "Audit Trail",
     path: "/dashboard/audit",
     icon: <History className="w-5 h-5" />,
+  },
+  {
+    name: "AI Settings",
+    path: "/dashboard/settings",
+    icon: <Settings className="w-5 h-5" />,
   },
 ];
 
@@ -82,12 +82,12 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-40">
-        <div className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
             <Activity className="w-5 h-5 text-white" />
           </div>
           <h1 className="font-bold text-gray-900">AI MedCoding</h1>
-        </div>
+        </Link>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -116,14 +116,14 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       >
         {/* Logo */}
         <div className="h-16 flex items-center px-6 border-b border-gray-200">
-          <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
               <Activity className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="font-bold text-gray-900">AI MedCoding</h1>
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Navigation */}

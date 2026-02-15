@@ -1,12 +1,22 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { auditTrailApi } from '@/lib/audit-trail-api';
-import { STATUS_LABELS, STATUS_COLORS } from '@/types/icd-diagnosis';
-import type { AuditTrailItem } from '@/types/audit-trail';
-import { History, Filter, Download, Loader2, AlertCircle, FileText } from 'lucide-react';
-import { toast } from 'sonner';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { auditTrailApi } from "@/lib/audit-trail-api";
+import { STATUS_LABELS, STATUS_COLORS } from "@/types/icd-diagnosis";
+import type { AuditTrailItem } from "@/types/audit-trail";
+import {
+  History,
+  Filter,
+  Download,
+  Loader2,
+  AlertCircle,
+  FileText,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
+import { toast } from "sonner";
 
 export default function AuditTrailPage() {
   // Data states
@@ -16,87 +26,125 @@ export default function AuditTrailPage() {
   const [count, setCount] = useState(0);
 
   // Filter states
-  const [dateFilter, setDateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [anFilter, setAnFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [anFilter, setAnFilter] = useState("");
 
-  // Fetch audit trail data
+  // Sorting states
+  const [sortField, setSortField] = useState<string>("updated_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Status number mapping
+  const STATUS_NUMBER_MAP: Record<string, number | undefined> = {
+    all: undefined,
+    approved: 1,
+    modified: 2,
+    rejected: 3,
+  };
+
+  // Fetch audit trail data with filters and sorting
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const response = await auditTrailApi.getList({ limit: 100 });
+        const response = await auditTrailApi.getList({
+          limit: 100,
+          search: anFilter || undefined,
+          status: STATUS_NUMBER_MAP[statusFilter],
+          date: dateFilter || undefined,
+          sortField: sortField,
+          sortOrder: sortOrder,
+        });
 
         if (response.success) {
           setAuditLogs(response.data);
           setCount(response.count);
         } else {
-          setError('Failed to fetch audit trail');
+          setError("Failed to fetch audit trail");
         }
       } catch (err) {
-        console.error('Error fetching audit trail:', err);
-        setError('Error loading audit trail');
+        console.error("Error fetching audit trail:", err);
+        setError("Error loading audit trail");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, []);
+    // Debounce search to avoid too many API calls
+    const timeoutId = setTimeout(fetchData, 300);
+    return () => clearTimeout(timeoutId);
+  }, [anFilter, statusFilter, dateFilter, sortField, sortOrder]);
 
-  // Filter logs locally
-  const filteredLogs = auditLogs.filter((log) => {
-    const statusName = STATUS_LABELS[log.status]?.toLowerCase() || '';
-    const matchesStatus = statusFilter === 'all' || statusName === statusFilter;
-    const matchesAN =
-      !anFilter ||
-      log.patient.admission_number.toLowerCase().includes(anFilter.toLowerCase());
-    const matchesDate =
-      !dateFilter ||
-      new Date(log.updated_at).toISOString().split('T')[0] === dateFilter;
-    return matchesStatus && matchesAN && matchesDate;
-  });
-
-  // Calculate stats
+  // Calculate stats from current data (for summary cards)
   const approvedCount = auditLogs.filter((l) => l.status === 1).length;
   const modifiedCount = auditLogs.filter((l) => l.status === 2).length;
   const rejectedCount = auditLogs.filter((l) => l.status === 3).length;
 
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const getSortIcon = (field: string) => {
+    if (sortField !== field)
+      return <ArrowUpDown className="w-4 h-4 ml-1 opacity-40" />;
+    return sortOrder === "asc" ? (
+      <ArrowUp className="w-4 h-4 ml-1" />
+    ) : (
+      <ArrowDown className="w-4 h-4 ml-1" />
+    );
+  };
+
   const handleExport = () => {
     // Create CSV content
-    const headers = ['Case ID', 'Admission Number', 'Status', 'Updated At', 'Comment'];
-    const rows = filteredLogs.map((log) => [
+    const headers = [
+      "Case ID",
+      "Admission Number",
+      "Status",
+      "Updated By",
+      "Updated At",
+      "Comment",
+    ];
+    const rows = auditLogs.map((log) => [
       log.id,
-      log.patient.admission_number,
-      STATUS_LABELS[log.status] || 'Unknown',
+      log.patient?.admission_number || "",
+      STATUS_LABELS[log.status] || "Unknown",
+      "Admin",
       new Date(log.updated_at).toLocaleString(),
-      log.comment || '',
+      log.comment || "",
     ]);
-    
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((r) => r.join(",")),
+    ].join("\n");
+
     // Download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `audit-trail-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `audit-trail-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
-    
-    toast.success('Audit trail exported successfully');
+
+    toast.success("Audit trail exported successfully");
   };
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    return new Date(dateString).toLocaleString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     });
   };
 
@@ -111,14 +159,16 @@ export default function AuditTrailPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Audit Trail</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Audit Trail
+            </h1>
             <p className="text-gray-600">
               Complete history of all coding decisions and modifications
             </p>
           </div>
           <button
             onClick={handleExport}
-            disabled={filteredLogs.length === 0}
+            disabled={auditLogs.length === 0}
             className="flex items-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-xl font-medium transition-colors"
           >
             <Download className="w-5 h-5" />
@@ -133,7 +183,9 @@ export default function AuditTrailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-green-700 mb-1">Total Approved</p>
-              <p className="text-2xl font-bold text-green-900">{approvedCount}</p>
+              <p className="text-2xl font-bold text-green-900">
+                {approvedCount}
+              </p>
             </div>
             <div className="w-12 h-12 bg-green-200 rounded-xl flex items-center justify-center">
               <History className="w-6 h-6 text-green-700" />
@@ -145,7 +197,9 @@ export default function AuditTrailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-purple-700 mb-1">Total Modified</p>
-              <p className="text-2xl font-bold text-purple-900">{modifiedCount}</p>
+              <p className="text-2xl font-bold text-purple-900">
+                {modifiedCount}
+              </p>
             </div>
             <div className="w-12 h-12 bg-purple-200 rounded-xl flex items-center justify-center">
               <History className="w-6 h-6 text-purple-700" />
@@ -245,76 +299,136 @@ export default function AuditTrailPage() {
 
             {/* Results Count */}
             <div className="mt-4 text-sm text-gray-600">
-              Showing {filteredLogs.length} of {count} records
+              Showing {auditLogs.length} of {count} records
             </div>
           </div>
 
           {/* Audit Table */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[1000px]">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                      Admission Number
+                    <th
+                      className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[150px] cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("admission_number")}
+                    >
+                      <div className="flex items-center">
+                        Admission Number
+                        {getSortIcon("admission_number")}
+                      </div>
                     </th>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                      Patient Info
+                    <th
+                      className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[180px] cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("patient_info")}
+                    >
+                      <div className="flex items-center">
+                        Patient Info
+                        {getSortIcon("patient_info")}
+                      </div>
                     </th>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                      Status
+                    <th
+                      className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[120px] cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("status")}
+                    >
+                      <div className="flex items-center">
+                        Status
+                        {getSortIcon("status")}
+                      </div>
                     </th>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
-                      Updated At
+                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[120px]">
+                      Updated By
                     </th>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    <th
+                      className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[180px] cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("updated_at")}
+                    >
+                      <div className="flex items-center">
+                        Updated At
+                        {getSortIcon("updated_at")}
+                      </div>
+                    </th>
+                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[200px]">
                       Comment
                     </th>
-                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700">
+                    <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 min-w-[80px]">
                       Action
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLogs.map((log) => (
+                  {auditLogs.map((log) => (
                     <tr
                       key={log.id}
                       className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                     >
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-6 min-w-[150px]">
                         <Link
                           href={`/dashboard/cases/${log.id}`}
                           className="font-medium text-blue-600 hover:text-blue-700"
                         >
-                          {log.patient.admission_number}
+                          {log.patient?.admission_number || "-"}
                         </Link>
                       </td>
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-6 min-w-[180px]">
                         <div className="text-sm text-gray-900">
-                          {log.patient.sex}, {log.patient.age || '-'} yrs
+                          {log.patient?.sex || "-"}, {log.patient?.age || "-"}{" "}
+                          yrs
                         </div>
-                        <div className="text-xs text-gray-500 truncate max-w-xs">
-                          {log.patient.chief_complaint || log.patient.pre_diagnosis || '-'}
+                        <div className="text-xs text-gray-500 truncate max-w-[180px]">
+                          {log.patient?.chief_complaint ||
+                            log.patient?.pre_diagnosis ||
+                            "-"}
                         </div>
                       </td>
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-6 min-w-[120px]">
                         <span
                           className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium capitalize border ${getStatusBadge(
-                            log.status
+                            log.status,
                           )}`}
                         >
-                          {STATUS_LABELS[log.status] || 'Unknown'}
+                          {STATUS_LABELS[log.status] || "Unknown"}
                         </span>
                       </td>
-                      <td className="py-4 px-6 text-sm text-gray-600">
-                        {formatDateTime(log.updated_at)}
+                      <td className="py-4 px-6 min-w-[120px]">
+                        <div className="text-sm font-medium text-gray-900">
+                          Admin
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Administrator
+                        </div>
                       </td>
-                      <td className="py-4 px-6 text-sm text-gray-600 max-w-xs">
-                        <p className="truncate" title={log.comment || ''}>
-                          {log.comment || '-'}
+                      <td className="py-4 px-6 text-sm text-gray-600 min-w-[180px]">
+                        <div className="text-sm font-medium text-gray-900">
+                          {new Date(log.updated_at).toLocaleDateString(
+                            "en-US",
+                            {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            },
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(log.updated_at).toLocaleTimeString(
+                            "en-US",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            },
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-4 px-6 text-sm text-gray-600 min-w-[200px]">
+                        <p
+                          className="truncate max-w-[200px]"
+                          title={log.comment || ""}
+                        >
+                          {log.comment || "-"}
                         </p>
                       </td>
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-6 min-w-[80px]">
                         <Link
                           href={`/dashboard/cases/${log.id}`}
                           className="text-blue-600 hover:text-blue-700 text-sm font-medium"
@@ -328,7 +442,7 @@ export default function AuditTrailPage() {
               </table>
             </div>
 
-            {filteredLogs.length === 0 && (
+            {auditLogs.length === 0 && (
               <div className="text-center py-12 text-gray-500">
                 <FileText className="w-12 h-12 mx-auto mb-4 opacity-30" />
                 <p>No audit logs found matching your filters</p>

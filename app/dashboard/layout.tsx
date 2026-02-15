@@ -1,17 +1,20 @@
-'use client'
+"use client";
 
-import React from 'react'
-import { DashboardLayout } from '@/app/components/DashboardLayoutComponent'
-import { ProtectedRoute } from '@/app/components/ProtectedRoute'
+import React from "react";
+import { DashboardLayout } from "@/app/components/DashboardLayoutComponent";
+import { ProtectedRoute } from "@/app/components/ProtectedRoute";
+import { AISettingsProvider } from "@/app/contexts/AISettingsContext";
 
 export default function DashboardRootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <ProtectedRoute>
-      <DashboardLayout>{children}</DashboardLayout>
+      <AISettingsProvider>
+        <DashboardLayout>{children}</DashboardLayout>
+      </AISettingsProvider>
     </ProtectedRoute>
-  )
+  );
 }

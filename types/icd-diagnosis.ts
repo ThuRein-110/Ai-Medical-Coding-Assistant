@@ -74,6 +74,9 @@ export interface ICDDiagnosisListQuery {
   status?: number;
   limit?: number;
   offset?: number;
+  search?: string;
+  sortField?: string;
+  sortOrder?: "asc" | "desc";
 }
 
 export type ICDDiagnosisApiResponse = ICDDiagnosisListResponse | ICDDiagnosisListError;

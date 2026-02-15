@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   Settings,
   RotateCcw,
@@ -10,6 +10,8 @@ import {
   Brain,
   Layers,
   CheckCircle,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -27,8 +29,7 @@ import {
   AI_SETTINGS_CONFIG,
   AISettingConfig,
 } from "@/types/ai-settings";
-
-const AI_SETTINGS_STORAGE_KEY = "ai-medical-coding-settings";
+import { useAISettings } from "@/app/contexts/AISettingsContext";
 
 // Group settings by category
 const SETTING_GROUPS = {
@@ -126,45 +127,33 @@ function SettingSlider({
 }
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasChanges, setHasChanges] = useState(false);
+  const {
+    settings,
+    updateSetting,
+    resetToDefaults,
+    saveSettings,
+    isLoading,
+    isSaving,
+    hasUnsavedChanges,
+    error,
+  } = useAISettings();
 
-  // Load settings from localStorage
-  useEffect(() => {
+  const handleSave = async () => {
     try {
-      const stored = localStorage.getItem(AI_SETTINGS_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setSettings({ ...DEFAULT_AI_SETTINGS, ...parsed });
-      }
-    } catch (error) {
-      console.error("Failed to load AI settings:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const updateSetting = (key: keyof AISettings, value: number) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-    setHasChanges(true);
-  };
-
-  const saveSettings = () => {
-    try {
-      localStorage.setItem(AI_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-      setHasChanges(false);
+      await saveSettings();
       toast.success("AI settings saved successfully");
-    } catch (error) {
-      console.error("Failed to save settings:", error);
+    } catch {
       toast.error("Failed to save settings");
     }
   };
 
-  const resetToDefaults = () => {
-    setSettings(DEFAULT_AI_SETTINGS);
-    setHasChanges(true);
-    toast.info("Settings reset to defaults - click Save to apply");
+  const handleReset = async () => {
+    try {
+      await resetToDefaults();
+      toast.success("Settings reset to defaults");
+    } catch {
+      toast.error("Failed to reset settings");
+    }
   };
 
   const getConfigByKey = (
@@ -176,7 +165,8 @@ export default function SettingsPage() {
   if (isLoading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <Loader2 className="animate-spin h-8 w-8 text-blue-600" />
+        <span className="ml-3 text-gray-600">Loading settings...</span>
       </div>
     );
   }
@@ -200,22 +190,35 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={resetToDefaults}
+              onClick={handleReset}
+              disabled={isSaving}
               className="gap-2"
             >
               <RotateCcw className="w-4 h-4" />
               Reset Defaults
             </Button>
             <Button
-              onClick={saveSettings}
-              disabled={!hasChanges}
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || isSaving}
               className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
             >
-              <Save className="w-4 h-4" />
-              Save Settings
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {isSaving ? "Saving..." : "Save Settings"}
             </Button>
           </div>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+            <AlertCircle className="w-5 h-5" />
+            <span className="text-sm">{error}</span>
+          </div>
+        )}
       </div>
 
       {/* Quick Stats */}
@@ -329,12 +332,19 @@ export default function SettingsPage() {
       {/* Floating Save Bar - Always visible */}
       <div
         className={`fixed bottom-4 right-6 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all ${
-          hasChanges
+          hasUnsavedChanges
             ? "bg-blue-600 text-white"
-            : "bg-gray-100 text-gray-500 border border-gray-200"
+            : isSaving
+              ? "bg-gray-200 text-gray-600"
+              : "bg-gray-100 text-gray-500 border border-gray-200"
         }`}
       >
-        {hasChanges ? (
+        {isSaving ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm font-medium">Saving...</span>
+          </>
+        ) : hasUnsavedChanges ? (
           <>
             <span className="text-sm font-medium">
               You have unsaved changes
@@ -342,7 +352,7 @@ export default function SettingsPage() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={saveSettings}
+              onClick={handleSave}
               className="bg-white text-blue-600 hover:bg-blue-50"
             >
               Save Now

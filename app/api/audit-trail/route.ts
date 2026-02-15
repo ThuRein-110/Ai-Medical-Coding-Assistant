@@ -44,6 +44,11 @@ export interface AuditTrailQuery {
  * Query params:
  *   - limit: Number of records to return (default: 50, max: 100)
  *   - offset: Offset for pagination (default: 0)
+ *   - search: Search term for admission number
+ *   - status: Filter by status (1=approved, 2=modified, 3=rejected)
+ *   - date: Filter by date (YYYY-MM-DD)
+ *   - sortField: Field to sort by (admission_number, status, updated_at)
+ *   - sortOrder: Sort order (asc, desc)
  */
 export async function GET(request: Request): Promise<NextResponse> {
   try {
@@ -56,12 +61,17 @@ export async function GET(request: Request): Promise<NextResponse> {
     const offsetParam = searchParams.get("offset");
     const offset = parseInt(offsetParam || "0") || 0;
 
+    const search = searchParams.get("search") || "";
+    const statusParam = searchParams.get("status");
+    const status = statusParam ? parseInt(statusParam) : undefined;
+    const date = searchParams.get("date") || "";
+    const sortField = searchParams.get("sortField") || "updated_at";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
+
     const supabase = await createClient();
 
-    // Fetch icd_diagnosis with patient data
-    // Filter: status != 0 (not pending)
-    // Sort: updated_at desc (most recent first)
-    const { data, error, count } = await supabase
+    // Build query with patient join
+    let query = supabase
       .from("icd_diagnosis")
       .select(
         `
@@ -82,9 +92,39 @@ export async function GET(request: Request): Promise<NextResponse> {
         `,
         { count: "exact" }
       )
-      .not("status", "eq", 0)  // Exclude pending (status = 0)
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .not("status", "eq", 0);  // Exclude pending (status = 0)
+
+    // Apply status filter if provided
+    if (status !== undefined && !isNaN(status)) {
+      query = query.eq("status", status);
+    }
+
+    // Apply search filter on admission_number
+    if (search) {
+      query = query.ilike("patient.admission_number", `%${search}%`);
+    }
+
+    // Apply date filter
+    if (date) {
+      const startOfDay = `${date}T00:00:00.000Z`;
+      const endOfDay = `${date}T23:59:59.999Z`;
+      query = query.gte("updated_at", startOfDay).lte("updated_at", endOfDay);
+    }
+
+    // Apply sorting
+    const ascending = sortOrder === "asc";
+    if (sortField === "admission_number") {
+      query = query.order("patient(admission_number)", { ascending });
+    } else if (sortField === "status") {
+      query = query.order("status", { ascending });
+    } else {
+      query = query.order("updated_at", { ascending });
+    }
+
+    // Apply pagination
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
 
     if (error) {
       console.error("Error fetching audit trail:", error);

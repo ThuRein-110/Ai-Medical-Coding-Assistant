@@ -18,6 +18,9 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  Loader2,
+  CheckCircle,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -39,6 +42,14 @@ export default function CaseDetailPage() {
   const [newICD9, setNewICD9] = useState('');
   const [comment, setComment] = useState('');
   const [showEvidence, setShowEvidence] = useState(false);
+  
+  // Loading and success states for actions
+  const [loadingAction, setLoadingAction] = useState<'approve' | 'modify' | 'reject' | null>(null);
+  const [successAction, setSuccessAction] = useState<'approve' | 'modify' | 'reject' | null>(null);
+
+  // AI suggested codes state (for deletion)
+  const [aiICD10Codes, setAiICD10Codes] = useState(caseData?.aiSuggestion.icd10Codes || []);
+  const [aiICD9Codes, setAiICD9Codes] = useState(caseData?.aiSuggestion.icd9Procedures || []);
 
   // Check if user can edit (only admin)
   const canEdit = user?.role === 'admin';
@@ -65,8 +76,11 @@ export default function CaseDetailPage() {
       return;
     }
 
+    setLoadingAction(action);
+    setSuccessAction(null);
+
     // Simulate API call to /api/feedback
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const actionMessages = {
       approve: 'Case approved successfully',
@@ -74,12 +88,32 @@ export default function CaseDetailPage() {
       reject: 'Case rejected',
     };
 
+    setLoadingAction(null);
+    setSuccessAction(action);
     toast.success(actionMessages[action]);
 
     // Navigate back after short delay
     setTimeout(() => {
       router.push('/cases');
-    }, 1000);
+    }, 1500);
+  };
+
+  const removeAiICD10Code = (index: number) => {
+    if (!canEdit) {
+      toast.error('Only administrators can edit codes');
+      return;
+    }
+    setAiICD10Codes(aiICD10Codes.filter((_, i) => i !== index));
+    toast.success('ICD-10 code removed from suggestions');
+  };
+
+  const removeAiICD9Code = (index: number) => {
+    if (!canEdit) {
+      toast.error('Only administrators can edit codes');
+      return;
+    }
+    setAiICD9Codes(aiICD9Codes.filter((_, i) => i !== index));
+    toast.success('ICD-9 code removed from suggestions');
   };
 
   const addICD10Code = () => {
@@ -249,12 +283,21 @@ export default function CaseDetailPage() {
               ICD-10 Diagnosis Codes
             </h3>
             <div className="space-y-3">
-              {caseData.aiSuggestion.icd10Codes.map((code, idx) => (
+              {aiICD10Codes.map((code, idx) => (
                 <div
                   key={idx}
-                  className="p-4 bg-gray-50 rounded-xl border border-gray-200"
+                  className="p-4 bg-gray-50 rounded-xl border border-gray-200 relative group"
                 >
-                  <div className="flex items-start justify-between mb-2">
+                  {canEdit && (
+                    <button
+                      onClick={() => removeAiICD10Code(idx)}
+                      className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      title="Remove code"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <div className="flex items-start justify-between mb-2 pr-8">
                     <span className="font-mono font-semibold text-blue-600">
                       {code.code}
                     </span>
@@ -274,18 +317,27 @@ export default function CaseDetailPage() {
           </div>
 
           {/* ICD-9 Procedures */}
-          {caseData.aiSuggestion.icd9Procedures.length > 0 && (
+          {aiICD9Codes.length > 0 && (
             <div className="mb-6">
               <h3 className="font-semibold text-gray-900 mb-3">
                 ICD-9 Procedure Codes
               </h3>
               <div className="space-y-3">
-                {caseData.aiSuggestion.icd9Procedures.map((code, idx) => (
+                {aiICD9Codes.map((code, idx) => (
                   <div
                     key={idx}
-                    className="p-4 bg-gray-50 rounded-xl border border-gray-200"
+                    className="p-4 bg-gray-50 rounded-xl border border-gray-200 relative group"
                   >
-                    <div className="flex items-start justify-between mb-2">
+                    {canEdit && (
+                      <button
+                        onClick={() => removeAiICD9Code(idx)}
+                        className="absolute top-2 right-2 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        title="Remove code"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    <div className="flex items-start justify-between mb-2 pr-8">
                       <span className="font-mono font-semibold text-purple-600">
                         {code.code}
                       </span>
@@ -498,24 +550,63 @@ export default function CaseDetailPage() {
             <div className="space-y-3">
               <button
                 onClick={() => handleAction('approve')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors"
+                disabled={loadingAction !== null}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                  successAction === 'approve'
+                    ? 'bg-green-500 text-white'
+                    : loadingAction === 'approve'
+                    ? 'bg-green-400 text-white cursor-wait'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                } ${loadingAction !== null && loadingAction !== 'approve' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Check className="w-5 h-5" />
-                Approve
+                {loadingAction === 'approve' ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : successAction === 'approve' ? (
+                  <CheckCircle className="w-5 h-5" />
+                ) : (
+                  <Check className="w-5 h-5" />
+                )}
+                {loadingAction === 'approve' ? 'Approving...' : successAction === 'approve' ? 'Approved!' : 'Approve'}
               </button>
               <button
                 onClick={() => handleAction('modify')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors"
+                disabled={loadingAction !== null}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                  successAction === 'modify'
+                    ? 'bg-purple-500 text-white'
+                    : loadingAction === 'modify'
+                    ? 'bg-purple-400 text-white cursor-wait'
+                    : 'bg-purple-600 hover:bg-purple-700 text-white'
+                } ${loadingAction !== null && loadingAction !== 'modify' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Edit className="w-5 h-5" />
-                Modify
+                {loadingAction === 'modify' ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : successAction === 'modify' ? (
+                  <CheckCircle className="w-5 h-5" />
+                ) : (
+                  <Edit className="w-5 h-5" />
+                )}
+                {loadingAction === 'modify' ? 'Saving...' : successAction === 'modify' ? 'Saved!' : 'Modify'}
               </button>
               <button
                 onClick={() => handleAction('reject')}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                disabled={loadingAction !== null}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                  successAction === 'reject'
+                    ? 'bg-red-500 text-white'
+                    : loadingAction === 'reject'
+                    ? 'bg-red-400 text-white cursor-wait'
+                    : 'bg-red-600 hover:bg-red-700 text-white'
+                } ${loadingAction !== null && loadingAction !== 'reject' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Ban className="w-5 h-5" />
-                Reject
+                {loadingAction === 'reject' ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : successAction === 'reject' ? (
+                  <CheckCircle className="w-5 h-5" />
+                ) : (
+                  <Ban className="w-5 h-5" />
+                )}
+                {loadingAction === 'reject' ? 'Rejecting...' : successAction === 'reject' ? 'Rejected!' : 'Reject'}
               </button>
             </div>
           ) : (

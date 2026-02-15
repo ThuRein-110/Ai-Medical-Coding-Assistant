@@ -9,7 +9,7 @@ import type {
 export const icdDiagnosisApi = {
   /**
    * Get list of ICD diagnoses with patient info
-   * @param params - Query parameters (status, limit, offset)
+   * @param params - Query parameters (status, limit, offset, search, sortField, sortOrder)
    * @returns List of ICD diagnoses with related patient data
    */
   getList: async (params?: ICDDiagnosisListQuery): Promise<ICDDiagnosisListResponse> => {
@@ -23,6 +23,15 @@ export const icdDiagnosisApi = {
     }
     if (params?.offset !== undefined) {
       queryParams.append("offset", params.offset.toString());
+    }
+    if (params?.search) {
+      queryParams.append("search", params.search);
+    }
+    if (params?.sortField) {
+      queryParams.append("sortField", params.sortField);
+    }
+    if (params?.sortOrder) {
+      queryParams.append("sortOrder", params.sortOrder);
     }
 
     const queryString = queryParams.toString();

@@ -32,6 +32,11 @@ export interface AuditTrailError {
 export interface AuditTrailQuery {
   limit?: number;
   offset?: number;
+  search?: string;
+  status?: number;
+  date?: string;
+  sortField?: string;
+  sortOrder?: "asc" | "desc";
 }
 
 export type AuditTrailApiResponse = AuditTrailResponse | AuditTrailError;

@@ -45,6 +45,9 @@ export interface ICDDiagnosisListQuery {
  *   - status: Filter by status (0=pending, 1=approved, 2=modified, 3=rejected)
  *   - limit: Number of records to return (default: 20, max: 100)
  *   - offset: Offset for pagination (default: 0)
+ *   - search: Search term for admission number, chief complaint, or pre-diagnosis
+ *   - sortField: Field to sort by (admission_number, age, sex, chief_complaint, pre_diagnosis, status, created_at)
+ *   - sortOrder: Sort order (asc, desc)
  */
 export async function GET(request: Request): Promise<NextResponse> {
   try {
@@ -59,6 +62,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     
     const offsetParam = searchParams.get("offset");
     const offset = parseInt(offsetParam || "0") || 0;
+
+    const search = (searchParams.get("search") || "").trim();
+    const sortField = searchParams.get("sortField") || "created_at";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
 
     const supabase = await createClient();
 
@@ -92,8 +99,41 @@ export async function GET(request: Request): Promise<NextResponse> {
       query = query.eq("status", status);
     }
 
+    // Apply search filter - search across multiple fields on the related patients table
+    if (search && search.length > 0) {
+      query = query.or(
+        `admission_number.ilike.%${search}%,chief_complaint.ilike.%${search}%,pre_diagnosis.ilike.%${search}%`,
+        { referencedTable: "patients" }
+      );
+    }
+
+    // Apply sorting
+    const ascending = sortOrder === "asc";
+    switch (sortField) {
+      case "admission_number":
+        query = query.order("patient(admission_number)", { ascending });
+        break;
+      case "age":
+        query = query.order("patient(age)", { ascending });
+        break;
+      case "sex":
+        query = query.order("patient(sex)", { ascending });
+        break;
+      case "chief_complaint":
+        query = query.order("patient(chief_complaint)", { ascending });
+        break;
+      case "pre_diagnosis":
+        query = query.order("patient(pre_diagnosis)", { ascending });
+        break;
+      case "status":
+        query = query.order("status", { ascending });
+        break;
+      default:
+        query = query.order("created_at", { ascending });
+    }
+
     // Apply pagination
-    query = query.range(offset, offset + limit - 1).order("created_at", { ascending: false });
+    query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
 

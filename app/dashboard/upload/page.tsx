@@ -110,6 +110,12 @@ export default function UploadPage() {
       // Show success animation
       setShowSuccess(true);
 
+      // Show toast to let admin know they can navigate away
+      toast.success(
+        `${totalInserted} case${totalInserted === 1 ? '' : 's'} uploaded! Feel free to navigate to another page - AI analysis will continue in the background.`,
+        { duration: 5000 }
+      );
+
       // Navigate to cases page after showing success animation
       setTimeout(() => {
         router.push("/dashboard/cases");

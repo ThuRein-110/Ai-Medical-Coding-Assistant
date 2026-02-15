@@ -1,10 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { mockCases, mockAuditLogs, getCaseStatistics } from "../utils/mockData";
+import Link from "next/link";
 import { useAuth } from "../contexts/AuthContext";
 import { dashboardApi } from "@/lib/dashboard-api";
+import { auditTrailApi } from "@/lib/audit-trail-api";
 import type { DashboardAnalytics } from "@/types/dashboard";
+import type { AuditTrailItem } from "@/types/audit-trail";
+import { STATUS_LABELS } from "@/types/icd-diagnosis";
 import {
   FileText,
   Clock,
@@ -14,38 +17,49 @@ import {
   TrendingUp,
   Activity,
   Loader2,
+  ArrowRight,
 } from "lucide-react";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [recentActivity, setRecentActivity] = useState<AuditTrailItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch analytics data on mount
+  // Fetch analytics data and recent activity on mount
   useEffect(() => {
-    const fetchAnalytics = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const response = await dashboardApi.getAnalytics();
+        
+        // Fetch analytics and recent activity in parallel
+        const [analyticsResponse, activityResponse] = await Promise.all([
+          dashboardApi.getAnalytics(),
+          auditTrailApi.getList({ limit: 5, sortField: "updated_at", sortOrder: "desc" })
+        ]);
 
-        if (response.success && response.data) {
-          setAnalytics(response.data);
+        if (analyticsResponse.success && analyticsResponse.data) {
+          setAnalytics(analyticsResponse.data);
         } else {
           setError("Failed to load analytics data");
         }
+
+        if (activityResponse.success && activityResponse.data) {
+          setRecentActivity(activityResponse.data);
+        }
       } catch (err) {
-        console.error("Error fetching analytics:", err);
+        console.error("Error fetching dashboard data:", err);
         setError("Error loading dashboard data");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchAnalytics();
+    fetchData();
   }, []);
 
-  // Use API data if available, otherwise fallback to mock data
+  // Use API data if available, otherwise fallback to defaults
   const stats = analytics || {
     totalCases: 0,
     pendingCount: 0,
@@ -53,10 +67,6 @@ export default function DashboardPage() {
     modifiedCount: 0,
     rejectedCount: 0,
   };
-
-  // Get recent activity from audit logs (still using mock for now)
-  const recentActivity = mockAuditLogs.slice(0, 5);
-  const mockStats = getCaseStatistics(mockCases);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -68,13 +78,13 @@ export default function DashboardPage() {
     }).format(date);
   };
 
-  const getActionBadge = (action: string) => {
-    const styles = {
-      approved: "bg-green-100 text-green-700",
-      modified: "bg-purple-100 text-purple-700",
-      rejected: "bg-red-100 text-red-700",
+  const getStatusBadge = (status: number) => {
+    const styles: Record<number, string> = {
+      1: "bg-green-100 text-green-700",
+      2: "bg-purple-100 text-purple-700",
+      3: "bg-red-100 text-red-700",
     };
-    return styles[action as keyof typeof styles] || "bg-gray-100 text-gray-700";
+    return styles[status] || "bg-gray-100 text-gray-700";
   };
 
   // Calculate completion and approval rates
@@ -118,13 +128,19 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 auto-rows-[minmax(120px,auto)]">
           {/* Featured Card - Total Cases (Large) */}
-          <div className="col-span-2 row-span-2 bg-gradient-to-br from-blue-600 to-blue-700 rounded-3xl p-6 text-white hover:shadow-xl transition-all">
+          <Link 
+            href="/dashboard/cases"
+            className="col-span-2 row-span-2 bg-gradient-to-br from-blue-600 to-blue-700 rounded-3xl p-6 text-white hover:shadow-xl hover:scale-[1.02] transition-all cursor-pointer group"
+          >
             <div className="h-full flex flex-col justify-between">
               <div className="flex items-start justify-between">
                 <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-sm">
                   <FileText className="w-8 h-8" />
                 </div>
-                <span className="text-blue-200 text-sm font-medium">Total</span>
+                <div className="flex items-center gap-1 text-blue-200 text-sm font-medium">
+                  <span>View All</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
               <div>
                 <div className="text-5xl md:text-6xl font-bold mb-2">
@@ -133,13 +149,19 @@ export default function DashboardPage() {
                 <div className="text-blue-100 text-lg">Total Cases</div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Pending Card */}
-          <div className="col-span-1 row-span-1 bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-100 rounded-2xl p-4 hover:shadow-md transition-all">
+          <Link 
+            href="/dashboard/cases?status=pending"
+            className="col-span-1 row-span-1 bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-100 rounded-2xl p-4 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer group"
+          >
             <div className="flex flex-col h-full justify-between">
-              <div className="bg-amber-100 p-2 rounded-xl w-fit">
-                <Clock className="w-5 h-5 text-amber-600" />
+              <div className="flex items-center justify-between">
+                <div className="bg-amber-100 p-2 rounded-xl w-fit">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                <ArrowRight className="w-4 h-4 text-amber-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900">
@@ -148,13 +170,19 @@ export default function DashboardPage() {
                 <div className="text-sm text-gray-600">Pending</div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Approved Card */}
-          <div className="col-span-1 row-span-1 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-4 hover:shadow-md transition-all">
+          <Link 
+            href="/dashboard/cases?status=approved"
+            className="col-span-1 row-span-1 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-2xl p-4 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer group"
+          >
             <div className="flex flex-col h-full justify-between">
-              <div className="bg-green-100 p-2 rounded-xl w-fit">
-                <CheckCircle className="w-5 h-5 text-green-600" />
+              <div className="flex items-center justify-between">
+                <div className="bg-green-100 p-2 rounded-xl w-fit">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
+                <ArrowRight className="w-4 h-4 text-green-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900">
@@ -163,7 +191,7 @@ export default function DashboardPage() {
                 <div className="text-sm text-gray-600">Approved</div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Quick Stats Card (spans 2 cols) */}
           <div className="col-span-2 row-span-2 bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all">
@@ -218,10 +246,16 @@ export default function DashboardPage() {
           </div>
 
           {/* Modified Card */}
-          <div className="col-span-1 row-span-1 bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-100 rounded-2xl p-4 hover:shadow-md transition-all">
+          <Link 
+            href="/dashboard/cases?status=modified"
+            className="col-span-1 row-span-1 bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-100 rounded-2xl p-4 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer group"
+          >
             <div className="flex flex-col h-full justify-between">
-              <div className="bg-purple-100 p-2 rounded-xl w-fit">
-                <Edit className="w-5 h-5 text-purple-600" />
+              <div className="flex items-center justify-between">
+                <div className="bg-purple-100 p-2 rounded-xl w-fit">
+                  <Edit className="w-5 h-5 text-purple-600" />
+                </div>
+                <ArrowRight className="w-4 h-4 text-purple-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900">
@@ -230,13 +264,19 @@ export default function DashboardPage() {
                 <div className="text-sm text-gray-600">Modified</div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Rejected Card */}
-          <div className="col-span-1 row-span-1 bg-gradient-to-br from-red-50 to-rose-50 border border-red-100 rounded-2xl p-4 hover:shadow-md transition-all">
+          <Link 
+            href="/dashboard/cases?status=rejected"
+            className="col-span-1 row-span-1 bg-gradient-to-br from-red-50 to-rose-50 border border-red-100 rounded-2xl p-4 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer group"
+          >
             <div className="flex flex-col h-full justify-between">
-              <div className="bg-red-100 p-2 rounded-xl w-fit">
-                <XCircle className="w-5 h-5 text-red-600" />
+              <div className="flex items-center justify-between">
+                <div className="bg-red-100 p-2 rounded-xl w-fit">
+                  <XCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <ArrowRight className="w-4 h-4 text-red-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <div>
                 <div className="text-2xl md:text-3xl font-bold text-gray-900">
@@ -245,7 +285,7 @@ export default function DashboardPage() {
                 <div className="text-sm text-gray-600">Rejected</div>
               </div>
             </div>
-          </div>
+          </Link>
 
           {/* Recent Activity Card (Large - spans 4 cols) */}
           <div className="col-span-2 md:col-span-4 row-span-2 bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all">
@@ -254,29 +294,28 @@ export default function DashboardPage() {
               <Activity className="w-5 h-5 text-gray-400" />
             </div>
             <div className="space-y-3 overflow-y-auto max-h-[200px]">
-              {recentActivity.map((log) => (
+              {recentActivity.map((item) => (
                 <div
-                  key={log.id}
+                  key={item.id}
                   className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-900 text-sm">
-                        {log.caseId}
+                        {item.patient.admission_number}
                       </span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${getActionBadge(log.action)}`}
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusBadge(item.status)}`}
                       >
-                        {log.action.charAt(0).toUpperCase() +
-                          log.action.slice(1)}
+                        {STATUS_LABELS[item.status]}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      by {log.user}
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      {item.patient.chief_complaint}
                     </p>
                   </div>
                   <div className="text-xs text-gray-400 whitespace-nowrap">
-                    {formatDate(log.timestamp)}
+                    {formatDate(item.updated_at)}
                   </div>
                 </div>
               ))}
@@ -289,19 +328,15 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Avg Confidence Card */}
+          {/* Processing Rate Card */}
           <div className="col-span-2 row-span-1 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-5 text-white hover:shadow-xl transition-all">
             <div className="flex items-center justify-between h-full">
               <div>
                 <div className="text-indigo-200 text-sm mb-1">
-                  Avg. AI Confidence
+                  Processing Rate
                 </div>
                 <div className="text-3xl md:text-4xl font-bold">
-                  {Math.round(
-                    mockCases.reduce((sum, c) => sum + c.overallConfidence, 0) /
-                      mockCases.length,
-                  )}
-                  %
+                  {completionRate}%
                 </div>
               </div>
               <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-sm">
