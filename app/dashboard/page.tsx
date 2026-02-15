@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { mockCases, mockAuditLogs, getCaseStatistics } from '../utils/mockData';
+import { mockCases, getCaseStatistics } from '../utils/mockData';
 import { useAuth } from '../contexts/AuthContext';
 import { dashboardApi } from '@/lib/dashboard-api';
 import type { DashboardAnalytics } from '@/types/dashboard';
+import type { RecentActivity } from '@/app/api/activities/recent/route';
 import {
   FileText,
   Clock,
@@ -16,33 +17,48 @@ import {
   Loader2,
 } from 'lucide-react';
 
+// Status labels for display
+const STATUS_LABELS: Record<number, string> = {
+  1: 'Approved',
+  2: 'Modified',
+  3: 'Rejected',
+};
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch analytics data on mount
+  // Fetch analytics and recent activities data on mount
   useEffect(() => {
-    const fetchAnalytics = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const response = await dashboardApi.getAnalytics();
+        const [analyticsResponse, activitiesResponse] = await Promise.all([
+          dashboardApi.getAnalytics(),
+          dashboardApi.getRecentActivities(),
+        ]);
         
-        if (response.success && response.data) {
-          setAnalytics(response.data);
+        if (analyticsResponse.success && analyticsResponse.data) {
+          setAnalytics(analyticsResponse.data);
         } else {
           setError('Failed to load analytics data');
         }
+
+        if (activitiesResponse.success && activitiesResponse.data) {
+          setRecentActivities(activitiesResponse.data);
+        }
       } catch (err) {
-        console.error('Error fetching analytics:', err);
+        console.error('Error fetching dashboard data:', err);
         setError('Error loading dashboard data');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchAnalytics();
+    fetchData();
   }, []);
 
   // Use API data if available, otherwise fallback to mock data
@@ -97,8 +113,6 @@ export default function DashboardPage() {
     },
   ];
 
-  // Get recent activity from audit logs (still using mock for now)
-  const recentActivity = mockAuditLogs.slice(0, 5);
   const mockStats = getCaseStatistics(mockCases);
 
   const formatDate = (dateString: string) => {
@@ -111,13 +125,13 @@ export default function DashboardPage() {
     }).format(date);
   };
 
-  const getActionBadge = (action: string) => {
-    const styles = {
-      approved: 'bg-green-100 text-green-700',
-      modified: 'bg-purple-100 text-purple-700',
-      rejected: 'bg-red-100 text-red-700',
+  const getStatusBadge = (status: number) => {
+    const styles: Record<number, string> = {
+      1: 'bg-green-100 text-green-700',
+      2: 'bg-purple-100 text-purple-700',
+      3: 'bg-red-100 text-red-700',
     };
-    return styles[action as keyof typeof styles] || 'bg-gray-100 text-gray-700';
+    return styles[status] || 'bg-gray-100 text-gray-700';
   };
 
   // Calculate completion and approval rates
@@ -185,40 +199,40 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-4">
-            {recentActivity.map((log) => (
+            {recentActivities.map((activity) => (
               <div
-                key={log.id}
+                key={activity.id}
                 className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="font-medium text-gray-900">
-                      {log.caseId}
+                      {activity.patient?.admission_number || 'Unknown'}
                     </span>
                     <span
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${getActionBadge(
-                        log.action
+                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${getStatusBadge(
+                        activity.status
                       )}`}
                     >
-                      {log.action.charAt(0).toUpperCase() + log.action.slice(1)}
+                      {STATUS_LABELS[activity.status] || 'Unknown'}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 mb-1">
-                    Reviewed by <span className="font-medium">{log.user}</span>
+                    {activity.patient?.chief_complaint || 'No chief complaint'}
                   </p>
-                  {log.comment && (
+                  {activity.comment && (
                     <p className="text-sm text-gray-500 italic truncate">
-                      "{log.comment}"
+                      &quot;{activity.comment}&quot;
                     </p>
                   )}
                 </div>
                 <div className="text-xs text-gray-500 whitespace-nowrap">
-                  {formatDate(log.timestamp)}
+                  {formatDate(activity.updated_at)}
                 </div>
               </div>
             ))}
 
-            {recentActivity.length === 0 && (
+            {recentActivities.length === 0 && (
               <div className="text-center py-12 text-gray-500">
                 <Activity className="w-12 h-12 mx-auto mb-4 opacity-30" />
                 <p>No recent activity</p>
