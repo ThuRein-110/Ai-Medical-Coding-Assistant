@@ -86,7 +86,7 @@ function generateCaseId(): string {
 }
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // allow up to 5 minutes for large multi-column batches
+export const maxDuration = 60; // Vercel Hobby tier limit (60s), use 300 for Pro tier
 
 export async function POST(request: Request) {
   try {
