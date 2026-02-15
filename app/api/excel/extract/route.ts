@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
-import { processDiagnosisCoding, BatchCodeResult } from '@/lib/diagnosis-coding'
 
 // Column mapping from Excel headers to database field names
 const COLUMN_MAPPING: Record<string, string> = {
@@ -41,15 +40,6 @@ interface SavedPatient {
   admission_number: string
 }
 
-interface ICDDiagnosisResult {
-  patient_id: string
-  an: string
-  diag_id: string | null
-  codeResultsInserted: number
-  inserted: boolean
-  error?: string
-}
-
 function normalizeColumnName(header: string): string {
   const normalized = header.toLowerCase().trim().replace(/\s+/g, '_')
   return COLUMN_MAPPING[normalized] || header
@@ -77,16 +67,8 @@ function mapRowData(row: Record<string, any>): MappedRow {
   }
 }
 
-// Generate a unique case ID
-function generateCaseId(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-  return `CASE-${year}-${random}`
-}
-
 export const runtime = "nodejs";
-export const maxDuration = 300; // allow up to 5 minutes for large multi-column batches
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -124,15 +106,12 @@ export async function POST(request: Request) {
     // Initialize Supabase client
     const supabase = await createClient()
 
-    // Extract, map and store data from all sheets
+    // Extract and store data from all sheets
     const sheets: Record<string, MappedRow[]> = {}
     const savedPatients: SavedPatient[] = []
     let totalInserted = 0
-    
-    // Collect records for diagnosis coding (only first 5 rows, matching patient insertion)
-    let recordsForCoding: Record<string, any>[] = []
-    let allHeaders: string[] = []
-    
+    const insertedCases: string[] = []
+
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName]
       // Convert sheet to JSON with column-value pairs (first row as keys)
@@ -141,17 +120,8 @@ export async function POST(request: Request) {
         raw: false, // Convert all values to strings
       }) as Record<string, any>[]
       
-      // Store headers from first sheet
-      if (allHeaders.length === 0 && jsonData.length > 0) {
-        allHeaders = Object.keys(jsonData[0])
-      }
-      
-      // Only collect first 5 rows per sheet for diagnosis coding (matching patient insertion)
-      const slicedData = jsonData.slice(0, 5)
-      recordsForCoding = [...recordsForCoding, ...slicedData]
-      
       // Map each row to standardized field names (limit to first 5 rows)
-      const mappedData: MappedRow[] = slicedData.map(mapRowData)
+      const mappedData: MappedRow[] = jsonData.slice(0, 5).map(mapRowData)
       sheets[sheetName] = mappedData
 
       // Insert each row as a new patient/case in Supabase (max 5 rows)
@@ -191,110 +161,31 @@ export async function POST(request: Request) {
             id: insertedPatient.id,
             admission_number: insertedPatient.admission_number
           })
+          insertedCases.push(insertedPatient.admission_number)
           totalInserted++
-        }
-      }
-    }
 
-    // Step 2: Process diagnosis coding AFTER saving patient data
-    let diagnosisCodingResult = null
-    if (recordsForCoding.length > 0 && allHeaders.length > 0) {
-      diagnosisCodingResult = await processDiagnosisCoding(recordsForCoding, allHeaders)
-    }
-
-    // Step 3: Create icd_diagnosis rows and code_results matching AN to patient_id
-    const icdDiagnosisResults: ICDDiagnosisResult[] = []
-    
-    if (diagnosisCodingResult?.success && diagnosisCodingResult.results.length > 0) {
-      // Group coding results by AN (normalize to string for comparison)
-      const codingResultsByAN = new Map<string, BatchCodeResult[]>()
-      
-      for (const result of diagnosisCodingResult.results) {
-        const an = String(result.an || '').trim()
-        if (!codingResultsByAN.has(an)) {
-          codingResultsByAN.set(an, [])
-        }
-        codingResultsByAN.get(an)!.push(result)
-      }
-      
-      // Create icd_diagnosis rows for each saved patient
-      for (const patient of savedPatients) {
-        const an = String(patient.admission_number).trim()
-        const codeResults = codingResultsByAN.get(an) || []
-        
-        if (codeResults.length > 0) {
-          const now = new Date().toISOString()
-          
-          // 3a. Create icd_diagnosis row
-          const { data: icdDiagnosis, error: icdInsertError } = await supabase
+          // Create empty icd_diagnosis row for AI processing later
+          await supabase
             .from('icd_diagnosis')
             .insert({
-              patient_id: patient.id,
-              status: 0, // 0: pending, 1: approved, 2: modified, 3: rejected
+              patient_id: insertedPatient.id,
+              status: 0, // pending
               comment: null,
               created_at: now
             })
-            .select('id')
-            .single()
-          
-          if (icdInsertError) {
-            console.error('Error inserting icd_diagnosis:', icdInsertError)
-            icdDiagnosisResults.push({
-              patient_id: patient.id,
-              an: an,
-              diag_id: null,
-              codeResultsInserted: 0,
-              inserted: false,
-              error: icdInsertError.message
-            })
-            continue
-          }
-          
-          const diagId = icdDiagnosis!.id
-          
-          // 3b. Create code_results rows for each coding result
-          const codeResultsData = codeResults.map(result => ({
-            diag_id: diagId,
-            code: result.icd_code,
-            desc: result.official_description || result.input_diagnosis,
-            comment: result.notes || null,
-            created_at: now
-          }))
-          
-          const { error: codeResultsError } = await supabase
-            .from('code_results')
-            .insert(codeResultsData)
-          
-          if (codeResultsError) {
-            console.error('Error inserting code_results:', codeResultsError)
-            icdDiagnosisResults.push({
-              patient_id: patient.id,
-              an: an,
-              diag_id: diagId,
-              codeResultsInserted: 0,
-              inserted: false,
-              error: codeResultsError.message
-            })
-          } else {
-            icdDiagnosisResults.push({
-              patient_id: patient.id,
-              an: an,
-              diag_id: diagId,
-              codeResultsInserted: codeResultsData.length,
-              inserted: true
-            })
-          }
-        } else {
-          // No coding results found for this patient
-          icdDiagnosisResults.push({
-            patient_id: patient.id,
-            an: an,
-            diag_id: null,
-            codeResultsInserted: 0,
-            inserted: false,
-            error: 'No coding results found for this AN'
-          })
         }
+      }
+    }
+
+    // Trigger background AI processing (fire and forget)
+    // This won't block the response
+    if (savedPatients.length > 0) {
+      // Use waitUntil if available (Vercel), otherwise just fire
+      const processPromise = processAIInBackground(savedPatients, sheets, supabase);
+      // @ts-ignore
+      if (typeof waitUntil !== 'undefined') {
+        // @ts-ignore
+        waitUntil(processPromise);
       }
     }
 
@@ -306,6 +197,7 @@ export async function POST(request: Request) {
       sheetCount: workbook.SheetNames.length,
       uploadedAt: new Date().toISOString(),
       totalInserted,
+      insertedCases,
       savedPatients,
     }
 
@@ -314,8 +206,7 @@ export async function POST(request: Request) {
         success: true,
         data: sheets,
         metadata,
-        diagnosisCoding: diagnosisCodingResult,
-        icdDiagnosis: icdDiagnosisResults,
+        message: `${totalInserted} patients saved. AI processing started in background.`,
       },
       { status: 200 }
     )
@@ -325,6 +216,108 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : 'Failed to extract and store data from Excel file' },
       { status: 500 }
     )
+  }
+}
+
+// Background AI processing function
+async function processAIInBackground(
+  savedPatients: SavedPatient[],
+  sheets: Record<string, MappedRow[]>,
+  supabase: any
+) {
+  try {
+    // Dynamically import to avoid loading during main request
+    const { processDiagnosisCoding } = await import('@/lib/diagnosis-coding')
+    
+    // Collect all records for AI processing
+    const allRecords: Record<string, any>[] = []
+    const allHeaders: string[] = []
+    
+    for (const sheetName of Object.keys(sheets)) {
+      const data = sheets[sheetName]
+      if (data.length > 0) {
+        // Convert MappedRow back to record format
+        const records = data.map(row => ({
+          an: row.admission_number,
+          age: row.age,
+          sex: row.sex,
+          chief_complaint: row.chief_complaint,
+          patient_illness: row.patient_illness,
+          patient_examine: row.patient_examine,
+          pre_diagnosis: row.pre_diagnosis,
+          treatment_plan: row.treatment_plan,
+        }))
+        allRecords.push(...records)
+        if (allHeaders.length === 0) {
+          allHeaders.push(...Object.keys(records[0]))
+        }
+      }
+    }
+
+    if (allRecords.length === 0 || allHeaders.length === 0) {
+      console.log('No records to process for AI')
+      return
+    }
+
+    // Process diagnosis coding with AI
+    const diagnosisCodingResult = await processDiagnosisCoding(allRecords, allHeaders)
+    
+    if (!diagnosisCodingResult.success) {
+      console.error('AI processing failed:', diagnosisCodingResult.error)
+      return
+    }
+
+    // Group coding results by AN
+    const codingResultsByAN = new Map<string, any[]>()
+    for (const result of diagnosisCodingResult.results) {
+      const an = String(result.an || '').trim()
+      if (!codingResultsByAN.has(an)) {
+        codingResultsByAN.set(an, [])
+      }
+      codingResultsByAN.get(an)!.push(result)
+    }
+
+    // Insert code results for each patient
+    for (const patient of savedPatients) {
+      const an = String(patient.admission_number).trim()
+      const codeResults = codingResultsByAN.get(an) || []
+      
+      if (codeResults.length > 0) {
+        const now = new Date().toISOString()
+        
+        // Get the icd_diagnosis row for this patient
+        const { data: icdDiagnosis } = await supabase
+          .from('icd_diagnosis')
+          .select('id')
+          .eq('patient_id', patient.id)
+          .single()
+        
+        if (icdDiagnosis) {
+          // Insert code results
+          const codeResultsData = codeResults.map((result: any) => ({
+            diag_id: icdDiagnosis.id,
+            code: result.icd_code,
+            desc: result.official_description || result.input_diagnosis,
+            comment: result.notes || null,
+            created_at: now
+          }))
+          
+          const { error } = await supabase
+            .from('code_results')
+            .insert(codeResultsData)
+          
+          if (error) {
+            console.error(`Error inserting code_results for ${an}:`, error)
+          } else {
+            console.log(`Inserted ${codeResultsData.length} code results for ${an}`)
+          }
+        }
+      }
+    }
+    
+    console.log('Background AI processing completed')
+  } catch (error) {
+    console.error('Background AI processing error:', error)
   }
 }
 
