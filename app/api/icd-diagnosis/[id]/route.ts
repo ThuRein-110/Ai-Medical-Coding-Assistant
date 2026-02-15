@@ -211,6 +211,25 @@ export async function PUT(
       );
     }
 
+    // Validate: if approving (status = 1), all codes must be present and valid
+    if (body.status === 1) {
+      if (!body.code_results || body.code_results.length === 0) {
+        return NextResponse.json(
+          { error: "Cannot approve case: No codes have been accepted" },
+          { status: 400 }
+        );
+      }
+      
+      // Check that all codes have valid values
+      const invalidCodes = body.code_results.filter(cr => !cr.code || cr.code.trim() === "");
+      if (invalidCodes.length > 0) {
+        return NextResponse.json(
+          { error: "Cannot approve case: All codes must have valid values" },
+          { status: 400 }
+        );
+      }
+    }
+
     // Update icd_diagnosis record
     const updateData: { status?: number; comment?: string } = {};
     if (body.status !== undefined) {

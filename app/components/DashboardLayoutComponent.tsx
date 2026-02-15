@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   Settings,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,6 +45,11 @@ const navItems: NavItem[] = [
     name: "AI Settings",
     path: "/dashboard/settings",
     icon: <Settings className="w-5 h-5" />,
+  },
+  {
+    name: "Audit Trail",
+    path: "/dashboard/audit",
+    icon: <History className="w-5 h-5" />,
   },
 ];
 
