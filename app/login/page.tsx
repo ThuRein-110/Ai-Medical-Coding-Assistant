@@ -12,6 +12,7 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
@@ -23,6 +24,7 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
     try {
       const success = await login(email, password);
@@ -30,10 +32,10 @@ export const LoginPage: React.FC = () => {
         toast.success('Login successful');
         router.push('/dashboard');
       } else {
-        toast.error('Invalid credentials');
+        setError('Email or password is incorrect. Please try again.');
       }
     } catch (error) {
-      toast.error('An error occurred');
+      setError('Email or password is incorrect. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -88,6 +90,10 @@ export const LoginPage: React.FC = () => {
               />
             </div>
 
+            {error && (
+              <p className="text-red-600 text-sm text-center">{error}</p>
+            )}
+
             <button
               type="submit"
               disabled={isLoading}
@@ -103,15 +109,7 @@ export const LoginPage: React.FC = () => {
             <div className="space-y-2 text-xs text-gray-600">
               <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
                 <span>Admin:</span>
-                <span className="font-mono">admin@example.com / admin123</span>
-              </div>
-              <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
-                <span>Coder:</span>
-                <span className="font-mono">coder1@example.com / coder123</span>
-              </div>
-              <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
-                <span>Auditor:</span>
-                <span className="font-mono">auditor1@example.com / auditor123</span>
+                <span className="font-mono">admin@gmail.com / admin</span>
               </div>
             </div>
           </div>
