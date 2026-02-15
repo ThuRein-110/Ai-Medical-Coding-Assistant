@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { mockCases } from '../../../utils/mockData';
-import { useAuth } from '../../../contexts/AuthContext';
+import React, { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { mockCases } from "../../utils/mockData";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   ArrowLeft,
   User,
@@ -21,8 +21,8 @@ import {
   Loader2,
   CheckCircle,
   Trash2,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
 export default function CaseDetailPage() {
   const params = useParams();
@@ -33,26 +33,34 @@ export default function CaseDetailPage() {
 
   // Pre-populate with AI suggestions by default
   const [finalICD10, setFinalICD10] = useState<string[]>(
-    caseData?.aiSuggestion.icd10Codes.map((c) => c.code) || []
+    caseData?.aiSuggestion.icd10Codes.map((c) => c.code) || [],
   );
   const [finalICD9, setFinalICD9] = useState<string[]>(
-    caseData?.aiSuggestion.icd9Procedures.map((c) => c.code) || []
+    caseData?.aiSuggestion.icd9Procedures.map((c) => c.code) || [],
   );
-  const [newICD10, setNewICD10] = useState('');
-  const [newICD9, setNewICD9] = useState('');
-  const [comment, setComment] = useState('');
+  const [newICD10, setNewICD10] = useState("");
+  const [newICD9, setNewICD9] = useState("");
+  const [comment, setComment] = useState("");
   const [showEvidence, setShowEvidence] = useState(false);
-  
+
   // Loading and success states for actions
-  const [loadingAction, setLoadingAction] = useState<'approve' | 'modify' | 'reject' | null>(null);
-  const [successAction, setSuccessAction] = useState<'approve' | 'modify' | 'reject' | null>(null);
+  const [loadingAction, setLoadingAction] = useState<
+    "approve" | "modify" | "reject" | null
+  >(null);
+  const [successAction, setSuccessAction] = useState<
+    "approve" | "modify" | "reject" | null
+  >(null);
 
   // AI suggested codes state (for deletion)
-  const [aiICD10Codes, setAiICD10Codes] = useState(caseData?.aiSuggestion.icd10Codes || []);
-  const [aiICD9Codes, setAiICD9Codes] = useState(caseData?.aiSuggestion.icd9Procedures || []);
+  const [aiICD10Codes, setAiICD10Codes] = useState(
+    caseData?.aiSuggestion.icd10Codes || [],
+  );
+  const [aiICD9Codes, setAiICD9Codes] = useState(
+    caseData?.aiSuggestion.icd9Procedures || [],
+  );
 
   // Check if user can edit (only admin)
-  const canEdit = user?.role === 'admin';
+  const canEdit = user?.role === "admin";
 
   if (!caseData) {
     return (
@@ -60,7 +68,7 @@ export default function CaseDetailPage() {
         <div className="text-center py-12">
           <p className="text-gray-600">Case not found</p>
           <button
-            onClick={() => router.push('/cases')}
+            onClick={() => router.push("/cases")}
             className="mt-4 text-blue-600 hover:text-blue-700"
           >
             Back to Case List
@@ -70,9 +78,9 @@ export default function CaseDetailPage() {
     );
   }
 
-  const handleAction = async (action: 'approve' | 'modify' | 'reject') => {
+  const handleAction = async (action: "approve" | "modify" | "reject") => {
     if (!canEdit) {
-      toast.error('Only administrators can review cases');
+      toast.error("Only administrators can review cases");
       return;
     }
 
@@ -83,9 +91,9 @@ export default function CaseDetailPage() {
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     const actionMessages = {
-      approve: 'Case approved successfully',
-      modify: 'Case modified and saved',
-      reject: 'Case rejected',
+      approve: "Case approved successfully",
+      modify: "Case modified and saved",
+      reject: "Case rejected",
     };
 
     setLoadingAction(null);
@@ -94,53 +102,53 @@ export default function CaseDetailPage() {
 
     // Navigate back after short delay
     setTimeout(() => {
-      router.push('/cases');
+      router.push("/cases");
     }, 1500);
   };
 
   const removeAiICD10Code = (index: number) => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     setAiICD10Codes(aiICD10Codes.filter((_, i) => i !== index));
-    toast.success('ICD-10 code removed from suggestions');
+    toast.success("ICD-10 code removed from suggestions");
   };
 
   const removeAiICD9Code = (index: number) => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     setAiICD9Codes(aiICD9Codes.filter((_, i) => i !== index));
-    toast.success('ICD-9 code removed from suggestions');
+    toast.success("ICD-9 code removed from suggestions");
   };
 
   const addICD10Code = () => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     if (newICD10.trim()) {
       setFinalICD10([...finalICD10, newICD10.trim()]);
-      setNewICD10('');
+      setNewICD10("");
     }
   };
 
   const addICD9Code = () => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     if (newICD9.trim()) {
       setFinalICD9([...finalICD9, newICD9.trim()]);
-      setNewICD9('');
+      setNewICD9("");
     }
   };
 
   const removeICD10 = (index: number) => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     setFinalICD10(finalICD10.filter((_, i) => i !== index));
@@ -148,23 +156,23 @@ export default function CaseDetailPage() {
 
   const removeICD9 = (index: number) => {
     if (!canEdit) {
-      toast.error('Only administrators can edit codes');
+      toast.error("Only administrators can edit codes");
       return;
     }
     setFinalICD9(finalICD9.filter((_, i) => i !== index));
   };
 
   const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 85) return 'text-green-600 bg-green-50';
-    if (confidence >= 70) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
+    if (confidence >= 85) return "text-green-600 bg-green-50";
+    if (confidence >= 70) return "text-yellow-600 bg-yellow-50";
+    return "text-red-600 bg-red-50";
   };
 
   const getSeverityColor = (severity: string) => {
     const colors = {
-      high: 'bg-red-100 border-red-300 text-red-700',
-      medium: 'bg-yellow-100 border-yellow-300 text-yellow-700',
-      low: 'bg-orange-100 border-orange-300 text-orange-700',
+      high: "bg-red-100 border-red-300 text-red-700",
+      medium: "bg-yellow-100 border-yellow-300 text-yellow-700",
+      low: "bg-orange-100 border-orange-300 text-orange-700",
     };
     return colors[severity as keyof typeof colors];
   };
@@ -174,7 +182,7 @@ export default function CaseDetailPage() {
       {/* Header */}
       <div className="mb-6">
         <button
-          onClick={() => router.push('/cases')}
+          onClick={() => router.push("/cases")}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -189,13 +197,13 @@ export default function CaseDetailPage() {
           </div>
           <span
             className={`px-4 py-2 rounded-xl font-medium capitalize ${
-              caseData.status === 'pending'
-                ? 'bg-yellow-100 text-yellow-700'
-                : caseData.status === 'approved'
-                ? 'bg-green-100 text-green-700'
-                : caseData.status === 'modified'
-                ? 'bg-purple-100 text-purple-700'
-                : 'bg-red-100 text-red-700'
+              caseData.status === "pending"
+                ? "bg-yellow-100 text-yellow-700"
+                : caseData.status === "approved"
+                  ? "bg-green-100 text-green-700"
+                  : caseData.status === "modified"
+                    ? "bg-purple-100 text-purple-700"
+                    : "bg-red-100 text-red-700"
             }`}
           >
             {caseData.status}
@@ -215,7 +223,9 @@ export default function CaseDetailPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-gray-500">Age</label>
-              <p className="mt-1 text-gray-900">{caseData.patientData.age} years</p>
+              <p className="mt-1 text-gray-900">
+                {caseData.patientData.age} years
+              </p>
             </div>
 
             <div>
@@ -303,13 +313,15 @@ export default function CaseDetailPage() {
                     </span>
                     <span
                       className={`text-xs px-2 py-1 rounded-full font-medium ${getConfidenceColor(
-                        code.confidence
+                        code.confidence,
                       )}`}
                     >
                       {code.confidence}%
                     </span>
                   </div>
-                  <p className="text-sm text-gray-900 mb-2">{code.description}</p>
+                  <p className="text-sm text-gray-900 mb-2">
+                    {code.description}
+                  </p>
                   <p className="text-xs text-gray-600 italic">{code.reason}</p>
                 </div>
               ))}
@@ -343,14 +355,18 @@ export default function CaseDetailPage() {
                       </span>
                       <span
                         className={`text-xs px-2 py-1 rounded-full font-medium ${getConfidenceColor(
-                          code.confidence
+                          code.confidence,
                         )}`}
                       >
                         {code.confidence}%
                       </span>
                     </div>
-                    <p className="text-sm text-gray-900 mb-2">{code.description}</p>
-                    <p className="text-xs text-gray-600 italic">{code.reason}</p>
+                    <p className="text-sm text-gray-900 mb-2">
+                      {code.description}
+                    </p>
+                    <p className="text-xs text-gray-600 italic">
+                      {code.reason}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -371,7 +387,7 @@ export default function CaseDetailPage() {
                   <div
                     key={alert.id}
                     className={`p-3 rounded-xl border ${getSeverityColor(
-                      alert.severity
+                      alert.severity,
                     )}`}
                   >
                     <p className="text-sm font-medium">{alert.message}</p>
@@ -437,7 +453,8 @@ export default function CaseDetailPage() {
           {!canEdit && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
               <p className="text-sm text-yellow-800">
-                <strong>Note:</strong> Only administrators can edit and approve cases. You can view AI suggestions and default codes.
+                <strong>Note:</strong> Only administrators can edit and approve
+                cases. You can view AI suggestions and default codes.
               </p>
             </div>
           )}
@@ -445,7 +462,7 @@ export default function CaseDetailPage() {
           {/* Final ICD-10 Codes */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Final ICD-10 Codes {!canEdit && '(AI Default)'}
+              Final ICD-10 Codes {!canEdit && "(AI Default)"}
             </label>
             <div className="space-y-2 mb-2">
               {finalICD10.map((code, idx) => (
@@ -471,7 +488,7 @@ export default function CaseDetailPage() {
                   type="text"
                   value={newICD10}
                   onChange={(e) => setNewICD10(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addICD10Code()}
+                  onKeyPress={(e) => e.key === "Enter" && addICD10Code()}
                   placeholder="Add ICD-10 code"
                   className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -488,7 +505,7 @@ export default function CaseDetailPage() {
           {/* Final ICD-9 Codes */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Final ICD-9 Procedure Codes {!canEdit && '(AI Default)'}
+              Final ICD-9 Procedure Codes {!canEdit && "(AI Default)"}
             </label>
             <div className="space-y-2 mb-2">
               {finalICD9.map((code, idx) => (
@@ -514,7 +531,7 @@ export default function CaseDetailPage() {
                   type="text"
                   value={newICD9}
                   onChange={(e) => setNewICD9(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addICD9Code()}
+                  onKeyPress={(e) => e.key === "Enter" && addICD9Code()}
                   placeholder="Add ICD-9 code"
                   className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -536,11 +553,13 @@ export default function CaseDetailPage() {
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder={canEdit ? "Add your review comments..." : "View only mode"}
+              placeholder={
+                canEdit ? "Add your review comments..." : "View only mode"
+              }
               rows={4}
               disabled={!canEdit}
               className={`w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
-                !canEdit ? 'opacity-60 cursor-not-allowed' : ''
+                !canEdit ? "opacity-60 cursor-not-allowed" : ""
               }`}
             />
           </div>
@@ -548,66 +567,68 @@ export default function CaseDetailPage() {
           {/* Action Buttons */}
           {canEdit ? (
             <div className="space-y-3">
-              <button
-                onClick={() => handleAction('approve')}
-                disabled={loadingAction !== null}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                  successAction === 'approve'
-                    ? 'bg-green-500 text-white'
-                    : loadingAction === 'approve'
-                    ? 'bg-green-400 text-white cursor-wait'
-                    : 'bg-green-600 hover:bg-green-700 text-white'
-                } ${loadingAction !== null && loadingAction !== 'approve' ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {loadingAction === 'approve' ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : successAction === 'approve' ? (
-                  <CheckCircle className="w-5 h-5" />
-                ) : (
-                  <Check className="w-5 h-5" />
-                )}
-                {loadingAction === 'approve' ? 'Approving...' : successAction === 'approve' ? 'Approved!' : 'Approve'}
-              </button>
-              <button
-                onClick={() => handleAction('modify')}
-                disabled={loadingAction !== null}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                  successAction === 'modify'
-                    ? 'bg-purple-500 text-white'
-                    : loadingAction === 'modify'
-                    ? 'bg-purple-400 text-white cursor-wait'
-                    : 'bg-purple-600 hover:bg-purple-700 text-white'
-                } ${loadingAction !== null && loadingAction !== 'modify' ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {loadingAction === 'modify' ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : successAction === 'modify' ? (
-                  <CheckCircle className="w-5 h-5" />
-                ) : (
-                  <Edit className="w-5 h-5" />
-                )}
-                {loadingAction === 'modify' ? 'Saving...' : successAction === 'modify' ? 'Saved!' : 'Modify'}
-              </button>
-              <button
-                onClick={() => handleAction('reject')}
-                disabled={loadingAction !== null}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                  successAction === 'reject'
-                    ? 'bg-red-500 text-white'
-                    : loadingAction === 'reject'
-                    ? 'bg-red-400 text-white cursor-wait'
-                    : 'bg-red-600 hover:bg-red-700 text-white'
-                } ${loadingAction !== null && loadingAction !== 'reject' ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {loadingAction === 'reject' ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : successAction === 'reject' ? (
-                  <CheckCircle className="w-5 h-5" />
-                ) : (
-                  <Ban className="w-5 h-5" />
-                )}
-                {loadingAction === 'reject' ? 'Rejecting...' : successAction === 'reject' ? 'Rejected!' : 'Reject'}
-              </button>
+              {caseData.status === "pending" ? (
+                <>
+                  <button
+                    onClick={() => handleAction("approve")}
+                    disabled={loadingAction !== null}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                      successAction === "approve"
+                        ? "bg-green-500 text-white"
+                        : loadingAction === "approve"
+                          ? "bg-green-400 text-white cursor-wait"
+                          : "bg-green-600 hover:bg-green-700 text-white"
+                    } ${loadingAction !== null && loadingAction !== "approve" ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    {loadingAction === "approve" ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : successAction === "approve" ? (
+                      <CheckCircle className="w-5 h-5" />
+                    ) : (
+                      <Check className="w-5 h-5" />
+                    )}
+                    {loadingAction === "approve"
+                      ? "Approving..."
+                      : successAction === "approve"
+                        ? "Approved!"
+                        : "Approve"}
+                  </button>
+                  <button
+                    onClick={() => handleAction("reject")}
+                    disabled={loadingAction !== null}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                      successAction === "reject"
+                        ? "bg-red-500 text-white"
+                        : loadingAction === "reject"
+                          ? "bg-red-400 text-white cursor-wait"
+                          : "bg-red-600 hover:bg-red-700 text-white"
+                    } ${loadingAction !== null && loadingAction !== "reject" ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    {loadingAction === "reject" ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : successAction === "reject" ? (
+                      <CheckCircle className="w-5 h-5" />
+                    ) : (
+                      <Ban className="w-5 h-5" />
+                    )}
+                    {loadingAction === "reject"
+                      ? "Rejecting..."
+                      : successAction === "reject"
+                        ? "Rejected!"
+                        : "Reject"}
+                  </button>
+                </>
+              ) : (
+                <div className="p-4 bg-gray-100 border border-gray-300 rounded-xl text-center">
+                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-gray-500" />
+                  <p className="text-sm text-gray-600 font-medium">
+                    Case already reviewed
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Status: <span className="capitalize">{caseData.status}</span>
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="p-4 bg-gray-100 border border-gray-300 rounded-xl text-center">

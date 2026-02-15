@@ -101,10 +101,22 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     // Apply search filter - search across multiple fields on the related patients table
     if (search && search.length > 0) {
-      query = query.or(
-        `admission_number.ilike.%${search}%,chief_complaint.ilike.%${search}%,pre_diagnosis.ilike.%${search}%`,
-        { referencedTable: "patients" }
-      );
+      // Check if search term is numeric for admission_number search
+      const isNumeric = /^\d+$/.test(search);
+      
+      if (isNumeric) {
+        // If numeric, search admission_number with equality and text fields with ilike
+        query = query.or(
+          `admission_number.eq.${search},chief_complaint.ilike.%${search}%,pre_diagnosis.ilike.%${search}%`,
+          { referencedTable: "patients" }
+        );
+      } else {
+        // If not numeric, only search text fields (admission_number is bigint, can't use ilike)
+        query = query.or(
+          `chief_complaint.ilike.%${search}%,pre_diagnosis.ilike.%${search}%`,
+          { referencedTable: "patients" }
+        );
+      }
     }
 
     // Apply sorting
